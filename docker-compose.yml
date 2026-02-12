@@ -1,0 +1,56 @@
+services:
+  # 1. Base de Datos (MySQL)
+  db:
+    image: mariadb:10.6
+    container_name: mysql_db
+    restart: always
+    environment:
+      MYSQL_DATABASE: ${DB_NAME}
+      MYSQL_USER: ${DB_USER}
+      MYSQL_PASSWORD: ${DB_PASSWORD}
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD}
+    ports:
+      - "3308:3306" # Puerto 3308 para evitar conflicto
+    volumes:
+      - db_data:/var/lib/mysql
+    # Scripts de inicialización automatica (si los hubiera)
+      - ./init_db_corrected.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - botnet
+    healthcheck:
+      test: "mysqladmin ping -h localhost -u root -p${DB_ROOT_PASSWORD}"
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  # 2. Bot de Discord
+  bot:
+    build: ./bot_asistencia_main
+    container_name: discord_bot
+    restart: always
+    command: python bot.py
+    volumes:
+      - ./bot_asistencia_main:/app
+      - ./credentials.json:/app/credentials.json # Montar credenciales explícitamente si se requiere  
+    environment:
+      - DISCORD_TOKEN=${DISCORD_TOKEN}
+      - DB_HOST=db
+      - DB_NAME=${DB_NAME}
+      - DB_USER=${DB_USER}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - DB_PORT=3306
+      - TZ=America/Lima # Forzar zona horaria en el contenedor
+      - GOOGLE_SHEET_NAME=${GOOGLE_SHEET_NAME} # Nombre de la hoja configurable
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - botnet
+
+networks:
+  botnet:
+    driver: bridge
+
+volumes:
+  db_data:
