@@ -8,13 +8,13 @@ services:
       MYSQL_DATABASE: ${DB_NAME}
       MYSQL_USER: ${DB_USER}
       MYSQL_PASSWORD: ${DB_PASSWORD}
-      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
     ports:
       - "3308:3306" # Puerto 3308 para evitar conflicto
     volumes:
       - db_data:/var/lib/mysql
     # Scripts de inicialización automatica (si los hubiera)
-      - ./init_db_corrected.sql:/docker-entrypoint-initdb.d/init.sql
+#      - ./init_db_corrected.sql:/docker-entrypoint-initdb.d/init.sql
     networks:
       - botnet
     healthcheck:
@@ -32,7 +32,7 @@ services:
     command: python bot.py
     volumes:
       - ./bot_asistencia_main:/app
-      - ./credentials.json:/app/credentials.json # Montar credenciales explícitamente si se requiere  
+      - ./bot_asistencia_main/credentials.json:/app/credentials.json # Ruta corregida  
     environment:
       - DISCORD_TOKEN=${DISCORD_TOKEN}
       - DB_HOST=db
