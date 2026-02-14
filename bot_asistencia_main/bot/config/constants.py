@@ -14,7 +14,7 @@ HORA_LIMITE_TARDANZA = time(8, 10, 59)   # 8:10:59 AM
 HORARIO_SALIDA_MINIMA = time(14, 30)     # 2:30 PM
 
 # Horarios de recuperación
-HORARIO_RECUPERACION_INICIO = time(14, 30)  # 2:30 PM
+HORARIO_RECUPERACION_INICIO = time(14, 40)  # 2:40 PM
 HORARIO_RECUPERACION_FIN = time(20, 0)      # 8:00 PM
 
 # Días de la semana (0=Lunes, 6=Domingo)
