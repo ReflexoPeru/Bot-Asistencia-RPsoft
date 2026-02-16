@@ -37,6 +37,4 @@ MSG_CANAL_NO_PERMITIDO = "Este comando no está habilitado en este canal."
 MSG_NO_REGISTRADO = "no estás registrado como practicante."
 MSG_CONTACTO_ADMIN = "Si tienes dudas, contacta con el administrador."
 
-LINK_FORMULARIO_REGISTRO = "https://docs.google.com/forms/d/e/1FAIpQLSdYvPt1RAbQhn-79GHtbUkHMqioOkPrWtVKStK142Yg8g_dtA/viewform?usp=sharing&ouid=102242366096944509611"
-
-
+LINK_FORMULARIO_REGISTRO = "https://docs.google.com/forms/d/e/1FAIpQLSe3_6V9xPss_HZIw7quWUMkP5juOxocxIVOBz8gC_zpw5iIiw/viewform?usp=publish-editor"
