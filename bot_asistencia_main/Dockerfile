@@ -15,4 +15,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
+# Asegurar permisos de ejecución
+#RUN chmod +x bot.py
+
 CMD ["python", "bot.py"]
