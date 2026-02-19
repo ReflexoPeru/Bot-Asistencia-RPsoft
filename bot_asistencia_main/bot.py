@@ -298,19 +298,109 @@ async def on_ready():
     logging.info(f'✅ Bot conectado y listo como {bot.user}')
 
 # Servidor web para Health Check
+# Servidor web para Health Check y Dashboard
 async def health_check_handler(request):
     return web.Response(text="Bot is running!", status=200)
 
+async def dashboard_handler(request):
+    try:
+        from aiohttp import web
+        import datetime
+        from utils import LIMA_TZ
+        import database as db
+
+        # 1. Obtener datos de la base de datos
+        fecha_actual = datetime.datetime.now(LIMA_TZ).date()
+        
+        query = """
+        SELECT p.nombre_completo, a.hora_entrada, a.hora_salida, ea.estado
+        FROM practicante p
+        JOIN asistencia a ON p.id = a.practicante_id AND a.fecha = %s
+        JOIN estado_asistencia ea ON a.estado_id = ea.id
+        ORDER BY a.hora_entrada ASC
+        """
+        
+        resultados = await db.fetch_all(query, (fecha_actual,))
+        
+        # 2. Construir filas HTML
+        rows_html = ""
+        empty_state = ""
+        
+        if resultados:
+            for row in resultados:
+                nombre = row['nombre_completo']
+                # Convertir timedelta a string si es necesario
+                entrada = str(row['hora_entrada']) if row['hora_entrada'] else "--:--"
+                # Si salida es None, mostramos vacio o guiones
+                salida_raw = row['hora_salida']
+                salida = str(salida_raw) if salida_raw else ""
+                estado_bd = row['estado']
+                
+                # Badges
+                badge_class = "badge-presente"
+                if "Tardanza" in estado_bd: badge_class = "badge-tardanza"
+                elif "Falta" in estado_bd: badge_class = "badge-falta"
+                
+                estado_badge = f'<span class="badge {badge_class}">{estado_bd}</span>'
+                
+                # Situación (Online/Offline)
+                if salida_raw:
+                    situacion = '<span class="state-offline">Finalizado</span>'
+                else:
+                    situacion = '<span class="state-online">● En Línea</span>'
+                    if not salida:
+                        salida = "---"
+
+                rows_html += f"""
+                <tr>
+                    <td>{nombre}</td>
+                    <td>{estado_badge}</td>
+                    <td>{entrada}</td>
+                    <td>{salida}</td>
+                    <td>{situacion}</td>
+                </tr>
+                """
+        else:
+             empty_state = '<div class="empty-state"><h3>No hay registros hoy</h3><p>Aún nadie ha marcado asistencia.</p></div>'
+
+        # 3. Leer template
+        try:
+            # Ruta relativa desde donde se ejecuta bot.py (usualmente root)
+            # Ojo: bot.py está en bot_asistencia_main/bot.py
+            # Si ejecutamos desde la raiz, la ruta es bot_asistencia_main/templates/index.html
+            # Pero dentro del contenedor WORKDIR es /app
+            # Intentemos ruta absoluta basada en __file__
+            current_dir = os.path.dirname(os.path.abspath(__file__))
+            template_path = os.path.join(current_dir, 'templates', 'index.html')
+            
+            with open(template_path, 'r', encoding='utf-8') as f:
+                html_content = f.read()
+        except FileNotFoundError:
+             # Fallback simple
+            return web.Response(text=f"<h1>Error: Template not found at {template_path}</h1>", status=500, content_type='text/html')
+
+        # 4. Reemplazar placeholders
+        # Ojo: el replace de Python es case sensitive y exacto
+        final_html = html_content.replace('<!-- DATA_ROWS__BE_REPLACED_BY_PYTHON -->', rows_html)
+        final_html = final_html.replace('<!-- EMPTY_STATE_PLACEHOLDER -->', empty_state)
+        
+        return web.Response(text=final_html, content_type='text/html')
+
+    except Exception as e:
+        logging.error(f"Error en dashboard: {e}")
+        return web.Response(text=f"Error interno: {str(e)}", status=500)
+
 async def start_health_check():
     app = web.Application()
-    app.router.add_get("/", health_check_handler)
+    app.router.add_get("/health", health_check_handler)
+    app.router.add_get("/", dashboard_handler)
     runner = web.AppRunner(app)
     await runner.setup()
     # Usar el puerto que asigne el hosting o el 10000 por defecto
     port = int(os.getenv("PORT", 10000))
     site = web.TCPSite(runner, "0.0.0.0", port)
     await site.start()
-    logging.info(f"🌐 Servidor de Health Check iniciado en el puerto {port}")
+    logging.info(f"🌐 Servidor Web iniciado en el puerto {port}")
 
 # Manejo de errores globales
 async def main():

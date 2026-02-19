@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Monitor de Asistencia en Tiempo Real</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-color: #0f172a;
+            --card-bg: #1e293b;
+            --text-primary: #f8fafc;
+            --text-secondary: #94a3b8;
+            --accent-color: #3b82f6;
+            --success-color: #22c55e;
+            --warning-color: #f59e0b;
+            --danger-color: #ef4444;
+            --border-color: #334155;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-primary);
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            justify-content: center;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 1000px;
+        }
+
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 2rem;
+            padding-bottom: 1rem;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .header h1 {
+            font-size: 1.5rem;
+            font-weight: 600;
+            margin: 0;
+        }
+
+        .status-badge {
+            background-color: rgba(34, 197, 94, 0.1);
+            color: var(--success-color);
+            padding: 0.25rem 0.75rem;
+            border-radius: 9999px;
+            font-size: 0.875rem;
+            font-weight: 500;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            background-color: currentColor;
+            border-radius: 50%;
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.5; }
+            100% { opacity: 1; }
+        }
+
+        .card {
+            background-color: var(--card-bg);
+            border-radius: 12px;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+            overflow: hidden;
+            border: 1px solid var(--border-color);
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            text-align: left;
+        }
+
+        th {
+            background-color: rgba(255, 255, 255, 0.05);
+            padding: 1rem;
+            font-weight: 600;
+            color: var(--text-secondary);
+            font-size: 0.875rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        td {
+            padding: 1rem;
+            border-bottom: 1px solid var(--border-color);
+            color: var(--text-primary);
+            font-size: 0.95rem;
+        }
+
+        tr:last-child td {
+            border-bottom: none;
+        }
+
+        tr:hover td {
+            background-color: rgba(255, 255, 255, 0.02);
+        }
+
+        .badge {
+            padding: 0.25rem 0.5rem;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            font-weight: 600;
+        }
+
+        .badge-presente { background: rgba(34, 197, 94, 0.2); color: #4ade80; }
+        .badge-tardanza { background: rgba(245, 158, 11, 0.2); color: #fbbf24; }
+        .badge-falta { background: rgba(239, 68, 68, 0.2); color: #f87171; }
+        
+        .state-online { color: var(--success-color); font-weight: bold; }
+        .state-offline { color: var(--text-secondary); }
+
+        .footer {
+            margin-top: 1rem;
+            text-align: center;
+            color: var(--text-secondary);
+            font-size: 0.8rem;
+        }
+        
+        .empty-state {
+            padding: 3rem;
+            text-align: center;
+            color: var(--text-secondary);
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Monitor de Asistencia <span style="font-weight: 300; color: var(--text-secondary);">| RP Soft</span></h1>
+            <div class="status-badge">
+                <div class="status-dot"></div>
+                En Vivo
+            </div>
+        </div>
+
+        <div class="card">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Practicante</th>
+                        <th>Estado</th>
+                        <th>Hora Entrada</th>
+                        <th>Hora Salida</th>
+                        <th>Situación</th>
+                    </tr>
+                </thead>
+                <tbody id="asistencia-body">
+                    <!-- DATA_ROWS__BE_REPLACED_BY_PYTHON -->
+                    <!-- Ejemplo estático para diseño -->
+                    <!-- 
+                    <tr>
+                        <td>Juan Pérez</td>
+                        <td><span class="badge badge-presente">Presente</span></td>
+                        <td>08:00:00</td>
+                        <td><span class="state-online">En Linea...</span></td>
+                        <td>En Sala</td>
+                    </tr>
+                    -->
+                </tbody>
+            </table>
+            <!-- EMPTY_STATE_PLACEHOLDER -->
+        </div>
+
+        <div class="footer">
+            Actualizado automáticamente cada 30 segundos | Fecha: <span id="fecha-hoy"></span>
+        </div>
+    </div>
+
+    <script>
+        // Actualizar fecha
+        const options = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' };
+        document.getElementById('fecha-hoy').textContent = new Date().toLocaleDateString('es-ES', options);
+
+        // Auto-refresh simple
+        setTimeout(() => {
+            window.location.reload();
+        }, 30000);
+    </script>
+</body>
+</html>
