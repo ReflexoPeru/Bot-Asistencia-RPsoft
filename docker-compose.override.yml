@@ -1,0 +1,46 @@
+services:
+  db:
+    image: mariadb:10.6
+    container_name: mysql_db
+    restart: always
+    privileged: true
+    environment:
+      MYSQL_DATABASE: ${DB_NAME}
+      MYSQL_USER: ${DB_USER}
+      MYSQL_PASSWORD: ${DB_PASSWORD}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+    volumes:
+      - db_data:/var/lib/mysql
+    healthcheck:
+      test: "mysqladmin ping -h localhost -u root -p${MYSQL_ROOT_PASSWORD}"
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  bot:
+    build: ./bot_asistencia_main
+    container_name: discord_bot
+    restart: always
+    privileged: true
+    command: python bot.py
+    volumes:
+      - ./bot_asistencia_main:/app
+      - ./bot_asistencia_main/credentials.json:/app/credentials.json
+    ports:
+      - "8080:10000"
+    environment:
+      - DISCORD_TOKEN=${DISCORD_TOKEN}
+      - DB_HOST=db # ← nombre del servicio, no localhost
+      - DB_NAME=${DB_NAME}
+      - DB_USER=${DB_USER}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - DB_PORT=3306
+      - TZ=America/Lima
+      - GOOGLE_SHEET_NAME=${GOOGLE_SHEET_NAME}
+    depends_on:
+      db:
+        condition: service_healthy # ← espera a que MariaDB esté lista
+
+volumes:
+  db_data:
