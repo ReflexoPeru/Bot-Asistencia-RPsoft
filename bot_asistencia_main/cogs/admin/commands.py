@@ -238,5 +238,54 @@ class Admin(commands.GroupCog, name="admin"):
         await db.execute_query(query, (id_int,))
         await interaction.followup.send(f"✅ Usuario eliminado del equipo.", ephemeral=True)
 
+    @app_commands.command(name='registros', description="Ver resumen rápido de registros del día")
+    async def registros(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        fecha_actual = datetime.now(LIMA_TZ).date()
+
+        # 1. Total de practicantes registrados
+        total_res = await db.fetch_one("SELECT COUNT(*) as total FROM practicante")
+        total_practicantes = total_res['total'] if total_res else 0
+
+        # 2. Presentes hasta las 8:10 a.m. (estado_id = 1 = Presente)
+        query_presentes = """
+        SELECT COUNT(*) as total FROM asistencia
+        WHERE fecha = %s AND estado_id = 1
+        """
+        presentes_res = await db.fetch_one(query_presentes, (fecha_actual,))
+        presentes = presentes_res['total'] if presentes_res else 0
+
+        # 3. Tardanzas (estado_id = 2 = Tardanza)
+        query_tardanzas = """
+        SELECT COUNT(*) as total FROM asistencia
+        WHERE fecha = %s AND estado_id = 2
+        """
+        tardanzas_res = await db.fetch_one(query_tardanzas, (fecha_actual,))
+        tardanzas = tardanzas_res['total'] if tardanzas_res else 0
+
+        # Construir Embed
+        embed = Embed(
+            title=f"📋 Registros del Día - {fecha_actual.strftime('%d/%m/%Y')}",
+            color=Color.dark_teal()
+        )
+        embed.add_field(
+            name="👥 Cantidad total de practicantes",
+            value=f"**{total_practicantes}**",
+            inline=False
+        )
+        embed.add_field(
+            name="✅ Presentes hasta las 8:10 a.m.",
+            value=f"**{presentes}**",
+            inline=False
+        )
+        embed.add_field(
+            name="🟠 Tardanzas (hasta las 9:15 a.m.)",
+            value=f"**{tardanzas}**",
+            inline=False
+        )
+        embed.set_footer(text="Reporte generado automáticamente por el Bot de Asistencia")
+
+        await interaction.followup.send(embed=embed, ephemeral=True)
+
 async def setup(bot):
     await bot.add_cog(Admin(bot))

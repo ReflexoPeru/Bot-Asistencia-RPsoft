@@ -1,6 +1,7 @@
 # Docker
 db_data/
 .dockerignore
+.docker-compose.override.yml
 
 # Python
 __pycache__/
