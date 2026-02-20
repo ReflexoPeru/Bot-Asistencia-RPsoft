@@ -263,6 +263,23 @@ class Admin(commands.GroupCog, name="admin"):
         tardanzas_res = await db.fetch_one(query_tardanzas, (fecha_actual,))
         tardanzas = tardanzas_res['total'] if tardanzas_res else 0
 
+        # 4. Faltan por llegar (total - presentes - tardanzas)
+        faltan_por_llegar = total_practicantes - presentes - tardanzas
+
+        # 5. Faltas: practicantes sin registro de entrada hoy (solo después de las 9:15)
+        hora_actual = datetime.now(LIMA_TZ).time()
+        if hora_actual >= time(9, 15):
+            query_faltas = """
+            SELECT COUNT(*) as total FROM practicante p
+            WHERE NOT EXISTS (
+                SELECT 1 FROM asistencia a WHERE a.practicante_id = p.id AND a.fecha = %s
+            )
+            """
+            faltas_res = await db.fetch_one(query_faltas, (fecha_actual,))
+            faltas = faltas_res['total'] if faltas_res else 0
+        else:
+            faltas = None  # Aún no se puede determinar
+
         # Construir Embed
         embed = Embed(
             title=f"📋 Registros del Día - {fecha_actual.strftime('%d/%m/%Y')}",
@@ -281,6 +298,17 @@ class Admin(commands.GroupCog, name="admin"):
         embed.add_field(
             name="🟠 Tardanzas (hasta las 9:15 a.m.)",
             value=f"**{tardanzas}**",
+            inline=False
+        )
+        embed.add_field(
+            name="⏳ Faltan por llegar",
+            value=f"**{faltan_por_llegar}**",
+            inline=False
+        )
+        faltas_texto = f"**{faltas}**" if faltas is not None else "⏳ *Aún no determinable (antes de 9:15 a.m.)*"
+        embed.add_field(
+            name="❌ Faltas",
+            value=faltas_texto,
             inline=False
         )
         embed.set_footer(text="Reporte generado automáticamente por el Bot de Asistencia")
