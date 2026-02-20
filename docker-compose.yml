@@ -14,7 +14,7 @@ services:
     volumes:
       - db_data:/var/lib/mysql
     # Scripts de inicialización automatica (si los hubiera)
-#      - ./init_db_corrected.sql:/docker-entrypoint-initdb.d/init.sql
+    #      - ./init_db_corrected.sql:/docker-entrypoint-initdb.d/init.sql
     networks:
       - botnet
     healthcheck:
@@ -33,6 +33,8 @@ services:
     volumes:
       - ./bot_asistencia_main:/app
       - ./bot_asistencia_main/credentials.json:/app/credentials.json # Ruta corregida  
+    ports:
+      - "8080:10000"
     environment:
       - DISCORD_TOKEN=${DISCORD_TOKEN}
       - DB_HOST=db
