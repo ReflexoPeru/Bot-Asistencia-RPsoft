@@ -4,19 +4,24 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Monitor de Asistencia en Tiempo Real</title>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <style>
         :root {
             --bg-color: #0f172a;
             --card-bg: #1e293b;
+            --card-bg-hover: #263548;
             --text-primary: #f8fafc;
             --text-secondary: #94a3b8;
             --accent-color: #3b82f6;
+            --accent-glow: rgba(59, 130, 246, 0.3);
             --success-color: #22c55e;
             --warning-color: #f59e0b;
             --danger-color: #ef4444;
             --border-color: #334155;
+            --border-color-light: #475569;
         }
+
+        * { box-sizing: border-box; }
 
         body {
             font-family: 'Inter', sans-serif;
@@ -26,18 +31,20 @@
             padding: 20px;
             display: flex;
             justify-content: center;
+            min-height: 100vh;
         }
 
         .container {
             width: 100%;
-            max-width: 1000px;
+            max-width: 1100px;
         }
 
+        /* Header */
         .header {
             display: flex;
             justify-content: space-between;
             align-items: center;
-            margin-bottom: 2rem;
+            margin-bottom: 1.5rem;
             padding-bottom: 1rem;
             border-bottom: 1px solid var(--border-color);
         }
@@ -74,10 +81,193 @@
             100% { opacity: 1; }
         }
 
+        /* Calendar Section */
+        .calendar-section {
+            margin-bottom: 1.5rem;
+        }
+
+        .calendar-card {
+            background-color: var(--card-bg);
+            border-radius: 12px;
+            border: 1px solid var(--border-color);
+            padding: 1.25rem;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+        }
+
+        .calendar-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1rem;
+        }
+
+        .calendar-header h2 {
+            font-size: 1.1rem;
+            font-weight: 600;
+            margin: 0;
+            color: var(--text-primary);
+        }
+
+        .calendar-nav {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+
+        .calendar-nav button {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid var(--border-color);
+            color: var(--text-primary);
+            width: 36px;
+            height: 36px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 1rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s ease;
+        }
+
+        .calendar-nav button:hover {
+            background: rgba(255, 255, 255, 0.1);
+            border-color: var(--border-color-light);
+        }
+
+        .calendar-month-label {
+            font-weight: 600;
+            font-size: 1rem;
+            min-width: 180px;
+            text-align: center;
+            text-transform: capitalize;
+        }
+
+        .btn-today {
+            background: rgba(59, 130, 246, 0.15) !important;
+            border-color: var(--accent-color) !important;
+            color: var(--accent-color) !important;
+            font-size: 0.75rem !important;
+            font-weight: 600;
+            width: auto !important;
+            padding: 0 12px !important;
+        }
+
+        .btn-today:hover {
+            background: rgba(59, 130, 246, 0.25) !important;
+        }
+
+        .calendar-grid {
+            display: grid;
+            grid-template-columns: repeat(7, 1fr);
+            gap: 4px;
+        }
+
+        .calendar-weekday {
+            text-align: center;
+            font-size: 0.7rem;
+            font-weight: 600;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            padding: 0.5rem 0;
+        }
+
+        .calendar-day {
+            text-align: center;
+            padding: 0.5rem 0.25rem;
+            border-radius: 8px;
+            font-size: 0.85rem;
+            cursor: default;
+            position: relative;
+            transition: all 0.15s ease;
+            color: var(--text-secondary);
+            min-height: 38px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .calendar-day.other-month {
+            color: #334155;
+        }
+
+        .calendar-day.has-data {
+            color: var(--text-primary);
+            cursor: pointer;
+            font-weight: 500;
+        }
+
+        .calendar-day.has-data:hover {
+            background: rgba(59, 130, 246, 0.15);
+        }
+
+        .calendar-day.has-data::after {
+            content: '';
+            position: absolute;
+            bottom: 4px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 5px;
+            height: 5px;
+            background: var(--accent-color);
+            border-radius: 50%;
+        }
+
+        .calendar-day.today {
+            background: rgba(59, 130, 246, 0.1);
+            border: 1px solid rgba(59, 130, 246, 0.3);
+            color: var(--accent-color);
+            font-weight: 700;
+        }
+
+        .calendar-day.selected {
+            background: var(--accent-color);
+            color: white;
+            font-weight: 700;
+            box-shadow: 0 0 12px var(--accent-glow);
+        }
+
+        .calendar-day.selected::after {
+            background: white;
+        }
+
+        .calendar-day.sunday {
+            color: var(--danger-color);
+            opacity: 0.5;
+        }
+
+        .calendar-day.sunday.has-data {
+            opacity: 1;
+        }
+
+        /* Selected date label */
+        .selected-date-label {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 0.75rem;
+        }
+
+        .selected-date-label h3 {
+            margin: 0;
+            font-size: 1rem;
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+
+        .selected-date-label .record-count {
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+            background: rgba(255,255,255,0.05);
+            padding: 0.25rem 0.75rem;
+            border-radius: 20px;
+        }
+
+        /* Table */
         .card {
             background-color: var(--card-bg);
             border-radius: 12px;
-            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
             overflow: hidden;
             border: 1px solid var(--border-color);
         }
@@ -90,31 +280,27 @@
 
         th {
             background-color: rgba(255, 255, 255, 0.05);
-            padding: 1rem;
+            padding: 0.875rem 1rem;
             font-weight: 600;
             color: var(--text-secondary);
-            font-size: 0.875rem;
+            font-size: 0.8rem;
             text-transform: uppercase;
             letter-spacing: 0.05em;
         }
 
         td {
-            padding: 1rem;
+            padding: 0.875rem 1rem;
             border-bottom: 1px solid var(--border-color);
             color: var(--text-primary);
-            font-size: 0.95rem;
+            font-size: 0.9rem;
         }
 
-        tr:last-child td {
-            border-bottom: none;
-        }
+        tr:last-child td { border-bottom: none; }
 
-        tr:hover td {
-            background-color: rgba(255, 255, 255, 0.02);
-        }
+        tr:hover td { background-color: rgba(255, 255, 255, 0.02); }
 
         .badge {
-            padding: 0.25rem 0.5rem;
+            padding: 0.2rem 0.5rem;
             border-radius: 4px;
             font-size: 0.75rem;
             font-weight: 600;
@@ -139,6 +325,53 @@
             text-align: center;
             color: var(--text-secondary);
         }
+
+        .empty-state h3 {
+            margin: 0 0 0.5rem;
+            color: var(--text-secondary);
+        }
+
+        /* Loading spinner */
+        .loading {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 2rem;
+            gap: 0.5rem;
+            color: var(--text-secondary);
+        }
+
+        .spinner {
+            width: 18px;
+            height: 18px;
+            border: 2px solid var(--border-color);
+            border-top: 2px solid var(--accent-color);
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        /* Fade transition */
+        .fade-in {
+            animation: fadeIn 0.25s ease-in;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+
+        /* Responsive */
+        @media (max-width: 640px) {
+            body { padding: 12px; }
+            .header h1 { font-size: 1.15rem; }
+            .calendar-month-label { min-width: 130px; font-size: 0.85rem; }
+            th, td { padding: 0.6rem 0.5rem; font-size: 0.78rem; }
+            .calendar-day { font-size: 0.78rem; min-height: 34px; }
+        }
     </style>
 </head>
 <body>
@@ -149,6 +382,30 @@
                 <div class="status-dot"></div>
                 En Vivo
             </div>
+        </div>
+
+        <!-- Calendar -->
+        <div class="calendar-section">
+            <div class="calendar-card">
+                <div class="calendar-header">
+                    <h2>📅 Calendario</h2>
+                    <div class="calendar-nav">
+                        <button id="btn-prev" title="Mes anterior">◀</button>
+                        <span class="calendar-month-label" id="month-label"></span>
+                        <button id="btn-next" title="Mes siguiente">▶</button>
+                        <button class="btn-today" id="btn-today" title="Ir a hoy">Hoy</button>
+                    </div>
+                </div>
+                <div class="calendar-grid" id="calendar-grid">
+                    <!-- JS renders here -->
+                </div>
+            </div>
+        </div>
+
+        <!-- Selected date + Table -->
+        <div class="selected-date-label">
+            <h3 id="selected-date-title">Registros del día</h3>
+            <span class="record-count" id="record-count"></span>
         </div>
 
         <div class="card">
@@ -164,35 +421,228 @@
                 </thead>
                 <tbody id="asistencia-body">
                     <!-- DATA_ROWS__BE_REPLACED_BY_PYTHON -->
-                    <!-- Ejemplo estático para diseño -->
-                    <!-- 
-                    <tr>
-                        <td>Juan Pérez</td>
-                        <td><span class="badge badge-presente">Presente</span></td>
-                        <td>08:00:00</td>
-                        <td><span class="state-online">En Linea...</span></td>
-                        <td>En Sala</td>
-                    </tr>
-                    -->
                 </tbody>
             </table>
             <!-- EMPTY_STATE_PLACEHOLDER -->
         </div>
 
         <div class="footer">
-            Actualizado automáticamente cada 30 segundos | Fecha: <span id="fecha-hoy"></span>
+            <span id="footer-text"></span>
         </div>
     </div>
 
     <script>
-        // Actualizar fecha
-        const options = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' };
-        document.getElementById('fecha-hoy').textContent = new Date().toLocaleDateString('es-ES', options);
+        // ─── State ───────────────────────────────────────────
+        const MONTHS_ES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+        const DAYS_ES = ['Lun','Mar','Mié','Jue','Vie','Sáb','Dom'];
 
-        // Auto-refresh simple
-        setTimeout(() => {
-            window.location.reload();
-        }, 30000);
+        // Get initial date from server placeholder or use today
+        const initialDateStr = '<!-- SELECTED_DATE_PLACEHOLDER -->';
+        const now = new Date();
+        let currentYear, currentMonth, selectedDate;
+
+        if (initialDateStr && !initialDateStr.includes('<!--')) {
+            const parts = initialDateStr.split('-');
+            currentYear = parseInt(parts[0]);
+            currentMonth = parseInt(parts[1]) - 1;
+            selectedDate = initialDateStr;
+        } else {
+            currentYear = now.getFullYear();
+            currentMonth = now.getMonth();
+            selectedDate = formatDate(now);
+        }
+
+        let datesWithData = new Set();
+
+        // ─── Helpers ─────────────────────────────────────────
+        function formatDate(d) {
+            const y = d.getFullYear();
+            const m = String(d.getMonth() + 1).padStart(2, '0');
+            const day = String(d.getDate()).padStart(2, '0');
+            return `${y}-${m}-${day}`;
+        }
+
+        function todayStr() {
+            return formatDate(new Date());
+        }
+
+        function formatDateEs(dateStr) {
+            const [y, m, d] = dateStr.split('-').map(Number);
+            const dayNames = ['domingo','lunes','martes','miércoles','jueves','viernes','sábado'];
+            const date = new Date(y, m - 1, d);
+            return `${dayNames[date.getDay()]}, ${d} de ${MONTHS_ES[m - 1].toLowerCase()} de ${y}`;
+        }
+
+        // ─── Calendar Rendering ──────────────────────────────
+        function renderCalendar() {
+            const grid = document.getElementById('calendar-grid');
+            const label = document.getElementById('month-label');
+            label.textContent = `${MONTHS_ES[currentMonth]} ${currentYear}`;
+
+            let html = '';
+            // Weekday headers
+            DAYS_ES.forEach(d => {
+                html += `<div class="calendar-weekday">${d}</div>`;
+            });
+
+            // First day of month (0=Sun, convert to Mon=0)
+            const firstDay = new Date(currentYear, currentMonth, 1).getDay();
+            const startOffset = (firstDay === 0) ? 6 : firstDay - 1;
+
+            // Days in current month
+            const daysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
+
+            // Previous month trailing days
+            const prevMonthDays = new Date(currentYear, currentMonth, 0).getDate();
+            for (let i = startOffset - 1; i >= 0; i--) {
+                const day = prevMonthDays - i;
+                html += `<div class="calendar-day other-month">${day}</div>`;
+            }
+
+            // Current month days
+            const today = todayStr();
+            for (let d = 1; d <= daysInMonth; d++) {
+                const dateStr = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+                const dayOfWeek = new Date(currentYear, currentMonth, d).getDay();
+                
+                let classes = ['calendar-day'];
+                if (dayOfWeek === 0) classes.push('sunday');
+                if (dateStr === today) classes.push('today');
+                if (dateStr === selectedDate) classes.push('selected');
+                if (datesWithData.has(dateStr)) classes.push('has-data');
+
+                const clickable = datesWithData.has(dateStr) || dateStr === today;
+                const onclick = clickable ? `onclick="selectDate('${dateStr}')"` : '';
+
+                html += `<div class="${classes.join(' ')}" ${onclick}>${d}</div>`;
+            }
+
+            // Next month leading days
+            const totalCells = startOffset + daysInMonth;
+            const remaining = (7 - (totalCells % 7)) % 7;
+            for (let i = 1; i <= remaining; i++) {
+                html += `<div class="calendar-day other-month">${i}</div>`;
+            }
+
+            grid.innerHTML = html;
+        }
+
+        // ─── API Calls ───────────────────────────────────────
+        async function fetchDatesWithData(year, month) {
+            try {
+                const mes = `${year}-${String(month + 1).padStart(2, '0')}`;
+                const res = await fetch(`/api/fechas?mes=${mes}`);
+                const data = await res.json();
+                datesWithData = new Set(data.fechas || []);
+            } catch (e) {
+                console.error('Error fetching dates:', e);
+                datesWithData = new Set();
+            }
+        }
+
+        async function fetchAttendance(dateStr) {
+            const tbody = document.getElementById('asistencia-body');
+            const card = tbody.closest('.card');
+
+            // Remove old empty state
+            const oldEmpty = card.querySelector('.empty-state');
+            if (oldEmpty) oldEmpty.remove();
+
+            // Show loading
+            tbody.innerHTML = `<tr><td colspan="5"><div class="loading"><div class="spinner"></div> Cargando...</div></td></tr>`;
+
+            try {
+                const res = await fetch(`/api/asistencia?fecha=${dateStr}`);
+                const data = await res.json();
+
+                if (data.registros && data.registros.length > 0) {
+                    let html = '';
+                    data.registros.forEach(r => {
+                        let badgeClass = 'badge-presente';
+                        if (r.estado.includes('Tardanza')) badgeClass = 'badge-tardanza';
+                        else if (r.estado.includes('Falta')) badgeClass = 'badge-falta';
+
+                        const salida = r.salida || '---';
+                        const situacion = r.salida
+                            ? '<span class="state-offline">Finalizado</span>'
+                            : '<span class="state-online">● En Línea</span>';
+
+                        html += `
+                        <tr class="fade-in">
+                            <td>${r.nombre}</td>
+                            <td><span class="badge ${badgeClass}">${r.estado}</span></td>
+                            <td>${r.entrada || '--:--'}</td>
+                            <td>${salida}</td>
+                            <td>${situacion}</td>
+                        </tr>`;
+                    });
+                    tbody.innerHTML = html;
+                    document.getElementById('record-count').textContent = `${data.registros.length} registros`;
+                } else {
+                    tbody.innerHTML = '';
+                    const emptyDiv = document.createElement('div');
+                    emptyDiv.className = 'empty-state fade-in';
+                    emptyDiv.innerHTML = '<h3>No hay registros para esta fecha</h3><p>Selecciona otro día en el calendario.</p>';
+                    card.appendChild(emptyDiv);
+                    document.getElementById('record-count').textContent = '0 registros';
+                }
+
+                // Update title
+                document.getElementById('selected-date-title').textContent = `📋 Registros — ${formatDateEs(dateStr)}`;
+                document.getElementById('footer-text').textContent = `Fecha seleccionada: ${formatDateEs(dateStr)}`;
+
+            } catch (e) {
+                console.error('Error fetching attendance:', e);
+                tbody.innerHTML = `<tr><td colspan="5"><div class="empty-state"><h3>Error al cargar datos</h3><p>${e.message}</p></div></td></tr>`;
+            }
+        }
+
+        // ─── Actions ─────────────────────────────────────────
+        async function selectDate(dateStr) {
+            selectedDate = dateStr;
+            renderCalendar();
+            await fetchAttendance(dateStr);
+        }
+
+        async function changeMonth(delta) {
+            currentMonth += delta;
+            if (currentMonth < 0) { currentMonth = 11; currentYear--; }
+            if (currentMonth > 11) { currentMonth = 0; currentYear++; }
+            
+            await fetchDatesWithData(currentYear, currentMonth);
+            renderCalendar();
+        }
+
+        async function goToToday() {
+            const today = new Date();
+            currentYear = today.getFullYear();
+            currentMonth = today.getMonth();
+            selectedDate = todayStr();
+            
+            await fetchDatesWithData(currentYear, currentMonth);
+            renderCalendar();
+            await fetchAttendance(selectedDate);
+        }
+
+        // ─── Event Listeners ─────────────────────────────────
+        document.getElementById('btn-prev').addEventListener('click', () => changeMonth(-1));
+        document.getElementById('btn-next').addEventListener('click', () => changeMonth(1));
+        document.getElementById('btn-today').addEventListener('click', goToToday);
+
+        // ─── Init ────────────────────────────────────────────
+        (async function init() {
+            // Set initial title
+            document.getElementById('selected-date-title').textContent = `📋 Registros — ${formatDateEs(selectedDate)}`;
+            document.getElementById('footer-text').textContent = `Fecha seleccionada: ${formatDateEs(selectedDate)}`;
+
+            // Count initial rows
+            const initialRows = document.querySelectorAll('#asistencia-body tr').length;
+            document.getElementById('record-count').textContent = `${initialRows} registros`;
+
+            // Load calendar data
+            await fetchDatesWithData(currentYear, currentMonth);
+            renderCalendar();
+        })();
     </script>
 </body>
 </html>
