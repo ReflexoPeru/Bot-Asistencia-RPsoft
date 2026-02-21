@@ -34,7 +34,7 @@ services:
       - ./bot_asistencia_main:/app
       - ./bot_asistencia_main/credentials.json:/app/credentials.json # Ruta corregida  
     ports:
-      - "8080:10000"
+      - "8081:10000"
     environment:
       - DISCORD_TOKEN=${DISCORD_TOKEN}
       - DB_HOST=db
