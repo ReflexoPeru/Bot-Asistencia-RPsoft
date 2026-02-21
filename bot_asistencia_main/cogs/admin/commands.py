@@ -255,20 +255,25 @@ class Admin(commands.GroupCog, name="admin"):
         presentes_res = await db.fetch_one(query_presentes, (fecha_actual,))
         presentes = presentes_res['total'] if presentes_res else 0
 
-        # 3. Tardanzas (estado_id = 2 = Tardanza)
+        # 3. Tardanzas (estado_id = 2 = Tardanza, hora_entrada <= 09:00)
         query_tardanzas = """
         SELECT COUNT(*) as total FROM asistencia
-        WHERE fecha = %s AND estado_id = 2
+        WHERE fecha = %s AND estado_id = 2 AND hora_entrada <= '09:00:00'
         """
         tardanzas_res = await db.fetch_one(query_tardanzas, (fecha_actual,))
         tardanzas = tardanzas_res['total'] if tardanzas_res else 0
 
-        # 4. Faltan por llegar (total - presentes - tardanzas)
-        faltan_por_llegar = total_practicantes - presentes - tardanzas
+        # 4. Fuera del límite (hora_entrada > 09:00)
+        query_fuera_limite = """
+        SELECT COUNT(*) as total FROM asistencia
+        WHERE fecha = %s AND hora_entrada > '09:00:00'
+        """
+        fuera_limite_res = await db.fetch_one(query_fuera_limite, (fecha_actual,))
+        fuera_limite = fuera_limite_res['total'] if fuera_limite_res else 0
 
-        # 5. Faltas: practicantes sin registro de entrada hoy (solo después de las 9:15)
+        # 5. Faltas: practicantes sin registro de entrada hoy (solo después de las 9:00)
         hora_actual = datetime.now(LIMA_TZ).time()
-        if hora_actual >= time(9, 15):
+        if hora_actual >= time(9, 0):
             query_faltas = """
             SELECT COUNT(*) as total FROM practicante p
             WHERE NOT EXISTS (
@@ -296,16 +301,16 @@ class Admin(commands.GroupCog, name="admin"):
             inline=False
         )
         embed.add_field(
-            name="🟠 Tardanzas (hasta las 9:15 a.m.)",
+            name="🟠 Tardanzas (8:10 - 9:00 a.m.)",
             value=f"**{tardanzas}**",
             inline=False
         )
         embed.add_field(
-            name="⏳ Faltan por llegar",
-            value=f"**{faltan_por_llegar}**",
+            name="🔴 Llegaron fuera del límite 9:00",
+            value=f"**{fuera_limite}**",
             inline=False
         )
-        faltas_texto = f"**{faltas}**" if faltas is not None else "⏳ *Aún no determinable (antes de 9:15 a.m.)*"
+        faltas_texto = f"**{faltas}**" if faltas is not None else "⏳ *Aún no determinable (antes de 9:00 a.m.)*"
         embed.add_field(
             name="❌ Faltas",
             value=faltas_texto,
@@ -314,6 +319,85 @@ class Admin(commands.GroupCog, name="admin"):
         embed.set_footer(text="Reporte generado automáticamente por el Bot de Asistencia")
 
         await interaction.followup.send(embed=embed, ephemeral=True)
+
+    @app_commands.command(name='registro_horario', description="Lista de practicantes separados por hora de llegada")
+    async def registro_horario(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        fecha_actual = datetime.now(LIMA_TZ).date()
+
+        # 1. A tiempo (estado_id = 1 = Presente, antes de 8:10)
+        query_a_tiempo = """
+        SELECT p.nombre_completo, a.hora_entrada
+        FROM asistencia a JOIN practicante p ON a.practicante_id = p.id
+        WHERE a.fecha = %s AND a.estado_id = 1
+        ORDER BY a.hora_entrada
+        """
+        a_tiempo = await db.fetch_all(query_a_tiempo, (fecha_actual,))
+
+        # 2. Tardanza (estado_id = 2, hora_entrada <= 09:00)
+        query_tardanza = """
+        SELECT p.nombre_completo, a.hora_entrada
+        FROM asistencia a JOIN practicante p ON a.practicante_id = p.id
+        WHERE a.fecha = %s AND a.estado_id = 2 AND a.hora_entrada <= '09:00:00'
+        ORDER BY a.hora_entrada
+        """
+        tardanza = await db.fetch_all(query_tardanza, (fecha_actual,))
+
+        # 3. Fuera del límite (hora_entrada > 09:00)
+        query_fuera = """
+        SELECT p.nombre_completo, a.hora_entrada
+        FROM asistencia a JOIN practicante p ON a.practicante_id = p.id
+        WHERE a.fecha = %s AND a.hora_entrada > '09:00:00'
+        ORDER BY a.hora_entrada
+        """
+        fuera = await db.fetch_all(query_fuera, (fecha_actual,))
+
+        # Helper para formatear hora (timedelta -> HH:MM)
+        def format_hora(td):
+            if td is None:
+                return "---"
+            total_seconds = int(td.total_seconds()) if hasattr(td, 'total_seconds') else 0
+            hours = total_seconds // 3600
+            minutes = (total_seconds % 3600) // 60
+            return f"{hours:02d}:{minutes:02d}"
+
+        # Embed 1 - A tiempo (Verde)
+        embed_verde = Embed(
+            title=f"✅ Llegaron a tiempo - {fecha_actual.strftime('%d/%m/%Y')}",
+            description=f"Practicantes que llegaron antes de las 8:10 a.m. ({len(a_tiempo)})",
+            color=Color.green()
+        )
+        if a_tiempo:
+            lista = "\n".join([f"• **{r['nombre_completo']}** — {format_hora(r['hora_entrada'])}" for r in a_tiempo])
+            embed_verde.add_field(name="\u200b", value=lista, inline=False)
+        else:
+            embed_verde.add_field(name="\u200b", value="*Ninguno*", inline=False)
+
+        # Embed 2 - Tardanza (Naranja)
+        embed_naranja = Embed(
+            title=f"🟠 Llegaron con tardanza - {fecha_actual.strftime('%d/%m/%Y')}",
+            description=f"Practicantes que llegaron entre 8:10 y 9:00 a.m. ({len(tardanza)})",
+            color=Color.orange()
+        )
+        if tardanza:
+            lista = "\n".join([f"• **{r['nombre_completo']}** — {format_hora(r['hora_entrada'])}" for r in tardanza])
+            embed_naranja.add_field(name="\u200b", value=lista, inline=False)
+        else:
+            embed_naranja.add_field(name="\u200b", value="*Ninguno*", inline=False)
+
+        # Embed 3 - Fuera del límite (Rojo)
+        embed_rojo = Embed(
+            title=f"🔴 Llegaron fuera del límite 9:00 - {fecha_actual.strftime('%d/%m/%Y')}",
+            description=f"Practicantes que llegaron después de las 9:00 a.m. ({len(fuera)})",
+            color=Color.red()
+        )
+        if fuera:
+            lista = "\n".join([f"• **{r['nombre_completo']}** — {format_hora(r['hora_entrada'])}" for r in fuera])
+            embed_rojo.add_field(name="\u200b", value=lista, inline=False)
+        else:
+            embed_rojo.add_field(name="\u200b", value="*Ninguno*", inline=False)
+
+        await interaction.followup.send(embeds=[embed_verde, embed_naranja, embed_rojo], ephemeral=True)
 
 async def setup(bot):
     await bot.add_cog(Admin(bot))
