@@ -282,9 +282,106 @@ async def setup_hook():
         await db.execute_query("INSERT INTO reportes_enviados (fecha) VALUES (%s)", (fecha_hoy,))
         logging.info(f"✅ Reporte diario del {fecha_hoy} enviado correctamente.")
 
+    # Tarea automática: Registro Horario a las 9 AM, 12 PM y 2 PM
+    @tasks.loop(time=[
+        datetime.time(hour=9, minute=0, tzinfo=LIMA_TZ),
+        datetime.time(hour=12, minute=0, tzinfo=LIMA_TZ),
+        datetime.time(hour=14, minute=0, tzinfo=LIMA_TZ),
+    ])
+    async def auto_registro_horario_task():
+        await bot.wait_until_ready()
+
+        # No enviar los domingos
+        if es_domingo():
+            return
+
+        fecha_actual = datetime.datetime.now(LIMA_TZ).date()
+        canal = bot.get_channel(1473020479332945940)
+        if not canal:
+            logging.error("❌ No se encontró el canal para registro horario automático")
+            return
+
+        # 1. A tiempo (estado_id = 1 = Presente, antes de 8:10)
+        query_a_tiempo = """
+        SELECT p.nombre_completo, a.hora_entrada
+        FROM asistencia a JOIN practicante p ON a.practicante_id = p.id
+        WHERE a.fecha = %s AND a.estado_id = 1
+        ORDER BY a.hora_entrada
+        """
+        a_tiempo = await db.fetch_all(query_a_tiempo, (fecha_actual,))
+
+        # 2. Tardanza (estado_id = 2, hora_entrada <= 09:00)
+        query_tardanza = """
+        SELECT p.nombre_completo, a.hora_entrada
+        FROM asistencia a JOIN practicante p ON a.practicante_id = p.id
+        WHERE a.fecha = %s AND a.estado_id = 2 AND a.hora_entrada <= '09:00:00'
+        ORDER BY a.hora_entrada
+        """
+        tardanza = await db.fetch_all(query_tardanza, (fecha_actual,))
+
+        # 3. Fuera del límite (hora_entrada > 09:00)
+        query_fuera = """
+        SELECT p.nombre_completo, a.hora_entrada
+        FROM asistencia a JOIN practicante p ON a.practicante_id = p.id
+        WHERE a.fecha = %s AND a.hora_entrada > '09:00:00'
+        ORDER BY a.hora_entrada
+        """
+        fuera = await db.fetch_all(query_fuera, (fecha_actual,))
+
+        # Helper para formatear hora (timedelta -> HH:MM)
+        def format_hora(td):
+            if td is None:
+                return "---"
+            total_seconds = int(td.total_seconds()) if hasattr(td, 'total_seconds') else 0
+            hours = total_seconds // 3600
+            minutes = (total_seconds % 3600) // 60
+            return f"{hours:02d}:{minutes:02d}"
+
+        # Helper para agregar lista paginada a un embed (máx 1024 chars por field)
+        def agregar_lista_paginada(embed, registros):
+            if not registros:
+                embed.add_field(name="\u200b", value="*Ninguno*", inline=False)
+                return
+            chunk = ""
+            for r in registros:
+                linea = f"• **{r['nombre_completo']}** — {format_hora(r['hora_entrada'])}\n"
+                if len(chunk) + len(linea) > 1024:
+                    embed.add_field(name="\u200b", value=chunk.rstrip(), inline=False)
+                    chunk = ""
+                chunk += linea
+            if chunk:
+                embed.add_field(name="\u200b", value=chunk.rstrip(), inline=False)
+
+        hora_actual = datetime.datetime.now(LIMA_TZ).strftime('%I:%M %p')
+
+        embed_verde = discord.Embed(
+            title=f"✅ Llegaron a tiempo - {fecha_actual.strftime('%d/%m/%Y')}",
+            description=f"Practicantes que llegaron antes de las 8:10 a.m. ({len(a_tiempo)})",
+            color=discord.Color.green()
+        )
+        agregar_lista_paginada(embed_verde, a_tiempo)
+
+        embed_naranja = discord.Embed(
+            title=f"🟠 Llegaron con tardanza - {fecha_actual.strftime('%d/%m/%Y')}",
+            description=f"Practicantes que llegaron entre 8:10 y 9:00 a.m. ({len(tardanza)})",
+            color=discord.Color.orange()
+        )
+        agregar_lista_paginada(embed_naranja, tardanza)
+
+        embed_rojo = discord.Embed(
+            title=f"🔴 Llegaron fuera del límite 9:00 - {fecha_actual.strftime('%d/%m/%Y')}",
+            description=f"Practicantes que llegaron después de las 9:00 a.m. ({len(fuera)})",
+            color=discord.Color.red()
+        )
+        agregar_lista_paginada(embed_rojo, fuera)
+
+        await canal.send(content=f"📊 **Registro Horario Automático** — {hora_actual}", embeds=[embed_verde, embed_naranja, embed_rojo])
+        logging.info(f"✅ Registro horario automático enviado a las {hora_actual}")
+
     # Iniciar las tareas
     sync_google_sheets_task.start()
     auto_reporte_diario_task.start()
+    auto_registro_horario_task.start()
     logging.info('Tareas programadas iniciadas.')
 
     # Nota: Los cogs ahora están organizados en carpetas (asistencia/, faltas/, recuperacion/)
