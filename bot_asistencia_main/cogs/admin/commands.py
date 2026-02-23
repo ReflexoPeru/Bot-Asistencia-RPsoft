@@ -361,17 +361,28 @@ class Admin(commands.GroupCog, name="admin"):
             minutes = (total_seconds % 3600) // 60
             return f"{hours:02d}:{minutes:02d}"
 
+        # Helper para agregar lista paginada a un embed (máx 1024 chars por field)
+        def agregar_lista_paginada(embed, registros):
+            if not registros:
+                embed.add_field(name="\u200b", value="*Ninguno*", inline=False)
+                return
+            chunk = ""
+            for r in registros:
+                linea = f"• **{r['nombre_completo']}** — {format_hora(r['hora_entrada'])}\n"
+                if len(chunk) + len(linea) > 1024:
+                    embed.add_field(name="\u200b", value=chunk.rstrip(), inline=False)
+                    chunk = ""
+                chunk += linea
+            if chunk:
+                embed.add_field(name="\u200b", value=chunk.rstrip(), inline=False)
+
         # Embed 1 - A tiempo (Verde)
         embed_verde = Embed(
             title=f"✅ Llegaron a tiempo - {fecha_actual.strftime('%d/%m/%Y')}",
             description=f"Practicantes que llegaron antes de las 8:10 a.m. ({len(a_tiempo)})",
             color=Color.green()
         )
-        if a_tiempo:
-            lista = "\n".join([f"• **{r['nombre_completo']}** — {format_hora(r['hora_entrada'])}" for r in a_tiempo])
-            embed_verde.add_field(name="\u200b", value=lista, inline=False)
-        else:
-            embed_verde.add_field(name="\u200b", value="*Ninguno*", inline=False)
+        agregar_lista_paginada(embed_verde, a_tiempo)
 
         # Embed 2 - Tardanza (Naranja)
         embed_naranja = Embed(
@@ -379,11 +390,7 @@ class Admin(commands.GroupCog, name="admin"):
             description=f"Practicantes que llegaron entre 8:10 y 9:00 a.m. ({len(tardanza)})",
             color=Color.orange()
         )
-        if tardanza:
-            lista = "\n".join([f"• **{r['nombre_completo']}** — {format_hora(r['hora_entrada'])}" for r in tardanza])
-            embed_naranja.add_field(name="\u200b", value=lista, inline=False)
-        else:
-            embed_naranja.add_field(name="\u200b", value="*Ninguno*", inline=False)
+        agregar_lista_paginada(embed_naranja, tardanza)
 
         # Embed 3 - Fuera del límite (Rojo)
         embed_rojo = Embed(
@@ -391,11 +398,7 @@ class Admin(commands.GroupCog, name="admin"):
             description=f"Practicantes que llegaron después de las 9:00 a.m. ({len(fuera)})",
             color=Color.red()
         )
-        if fuera:
-            lista = "\n".join([f"• **{r['nombre_completo']}** — {format_hora(r['hora_entrada'])}" for r in fuera])
-            embed_rojo.add_field(name="\u200b", value=lista, inline=False)
-        else:
-            embed_rojo.add_field(name="\u200b", value="*Ninguno*", inline=False)
+        agregar_lista_paginada(embed_rojo, fuera)
 
         await interaction.followup.send(embeds=[embed_verde, embed_naranja, embed_rojo], ephemeral=True)
 
