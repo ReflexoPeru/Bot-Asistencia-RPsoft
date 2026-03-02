@@ -14,8 +14,12 @@ HORA_LIMITE_TARDANZA = time(8, 10, 59)   # 8:10:59 AM
 HORARIO_SALIDA_MINIMA = time(14, 30)     # 2:30 PM
 
 # Horarios de recuperación
-HORARIO_RECUPERACION_INICIO = time(14, 40)  # 2:40 PM
-HORARIO_RECUPERACION_FIN = time(20, 0)      # 8:00 PM
+HORA_INICIO_RECUPERACION = time(14, 50)     # 2:50 PM
+HORA_FIN_RECUPERACION = time(20, 0)         # 8:00 PM
+MARGEN_TOLERANCIA_MINUTOS = 20
+HORA_CIERRE_REAL = time(20, 20)             # 8:20 PM (FIN + MARGEN)
+MAX_ADVERTENCIAS_CONSECUTIVAS = 3
+HORAS_SEMANALES_REQUERIDAS = 36
 
 # Días de la semana (0=Lunes, 6=Domingo)
 # Solo permitir lunes a viernes (0-4)

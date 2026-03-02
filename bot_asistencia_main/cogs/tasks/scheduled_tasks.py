@@ -7,6 +7,11 @@ import datetime
 import logging
 import database as db
 from utils import LIMA_TZ, format_timedelta, es_domingo
+from bot.config.constants import (
+    HORA_FIN_RECUPERACION,
+    HORA_CIERRE_REAL,
+    MAX_ADVERTENCIAS_CONSECUTIVAS,
+)
 
 
 class BotMetrics:
@@ -61,6 +66,7 @@ class ScheduledTasks(commands.Cog):
         self.sync_google_sheets_task.cancel()
         self.auto_reporte_diario_task.cancel()
         self.auto_registro_horario_task.cancel()
+        self.auto_cierre_recuperacion.cancel()
 
     # --- Eventos para conteo de métricas ---
 
@@ -312,6 +318,116 @@ class ScheduledTasks(commands.Cog):
     async def before_registro_horario(self):
         await self.bot.wait_until_ready()
 
+    # --- Tarea: Cierre Automático de Recuperaciones (20:20 Lima) ---
+
+    @tasks.loop(time=[datetime.time(hour=HORA_CIERRE_REAL.hour, minute=HORA_CIERRE_REAL.minute, tzinfo=LIMA_TZ)])
+    async def auto_cierre_recuperacion(self):
+        """Cierra todas las recuperaciones abiertas del día a las 20:20."""
+        if es_domingo():
+            return
+
+        logging.info("🔒 Ejecutando cierre automático de recuperaciones...")
+
+        # 1. Obtener todos los registros abiertos del día
+        query_abiertos = """
+        SELECT ar.id, ar.practicante_id, p.id_discord, p.nombre_completo
+        FROM asistencia_recuperacion ar
+        JOIN practicante p ON p.id = ar.practicante_id
+        WHERE ar.fecha_recuperacion = CURDATE()
+          AND ar.estado = 'abierto'
+        """
+        registros = await db.fetch_all(query_abiertos)
+
+        if not registros:
+            logging.info("✅ No hay recuperaciones abiertas para cerrar.")
+            return
+
+        hora_cierre_str = HORA_FIN_RECUPERACION.strftime('%H:%M')
+
+        for reg in registros:
+            rec_id = reg['id']
+            practicante_id = reg['practicante_id']
+            discord_id = reg['id_discord']
+            nombre = reg['nombre_completo']
+
+            try:
+                # 2. Cerrar registro con hora_salida = 20:00
+                await db.execute_query(
+                    "UPDATE asistencia_recuperacion SET hora_salida = %s WHERE id = %s",
+                    (HORA_FIN_RECUPERACION, rec_id)
+                )
+
+                # 3. Sumar advertencia
+                await db.execute_query(
+                    "UPDATE practicante SET advertencias = advertencias + 1 WHERE id = %s",
+                    (practicante_id,)
+                )
+
+                # 4. Obtener valor actualizado
+                prac = await db.fetch_one(
+                    "SELECT advertencias FROM practicante WHERE id = %s",
+                    (practicante_id,)
+                )
+                advertencias = prac['advertencias'] if prac else 1
+
+                # 5. Enviar DM según cantidad de advertencias
+                user = self.bot.get_user(discord_id) or await self.bot.fetch_user(discord_id)
+
+                if advertencias >= MAX_ADVERTENCIAS_CONSECUTIVAS:
+                    # Invalidar registro y resetear contador
+                    await db.execute_query(
+                        "UPDATE asistencia_recuperacion SET estado = 'invalidado' WHERE id = %s",
+                        (rec_id,)
+                    )
+                    await db.execute_query(
+                        "UPDATE practicante SET advertencias = 0 WHERE id = %s",
+                        (practicante_id,)
+                    )
+
+                    if user:
+                        try:
+                            await user.send(
+                                f"❌ **Horas de recuperación invalidadas**\n"
+                                f"Acumulaste {MAX_ADVERTENCIAS_CONSECUTIVAS} advertencias consecutivas "
+                                f"por no cerrar tu recuperación a tiempo.\n"
+                                f"Las horas de recuperación de hoy **no serán contabilizadas**.\n"
+                                f"Contactá con el administrador si creés que es un error."
+                            )
+                        except discord.Forbidden:
+                            logging.warning(f"No se pudo enviar DM a {nombre} ({discord_id})")
+
+                    logging.warning(f"❌ Recuperación invalidada para {nombre} (3 advertencias)")
+                else:
+                    # Marcar como válido pero con advertencia
+                    await db.execute_query(
+                        "UPDATE asistencia_recuperacion SET estado = 'valido' WHERE id = %s",
+                        (rec_id,)
+                    )
+
+                    if user:
+                        try:
+                            await user.send(
+                                f"🚨 **Tu recuperación fue cerrada automáticamente.**\n"
+                                f"No registraste tu salida antes de las {HORA_CIERRE_REAL.strftime('%H:%M')}hs.\n"
+                                f"⏱️ Se registraron tus horas hasta las {hora_cierre_str}hs.\n"
+                                f"⚠️ Advertencia ({advertencias}/{MAX_ADVERTENCIAS_CONSECUTIVAS}). "
+                                f"Si acumulás {MAX_ADVERTENCIAS_CONSECUTIVAS} advertencias consecutivas, "
+                                f"tus horas de recuperación serán invalidadas."
+                            )
+                        except discord.Forbidden:
+                            logging.warning(f"No se pudo enviar DM a {nombre} ({discord_id})")
+
+                    logging.info(f"⚠️ Recuperación cerrada para {nombre} — Advertencia {advertencias}/{MAX_ADVERTENCIAS_CONSECUTIVAS}")
+
+            except Exception as e:
+                logging.error(f"Error cerrando recuperación ID {rec_id} para {nombre}: {e}")
+
+        logging.info(f"🔒 Cierre automático completado. {len(registros)} registros procesados.")
+
+    @auto_cierre_recuperacion.before_loop
+    async def before_cierre_recuperacion(self):
+        await self.bot.wait_until_ready()
+
     # --- Iniciar todas las tareas cuando el cog se carga ---
 
     async def cog_load(self):
@@ -319,6 +435,7 @@ class ScheduledTasks(commands.Cog):
         self.sync_google_sheets_task.start()
         self.auto_reporte_diario_task.start()
         self.auto_registro_horario_task.start()
+        self.auto_cierre_recuperacion.start()
         logging.info("✅ Tareas programadas iniciadas.")
 
 

@@ -101,7 +101,8 @@ async def ensure_db_setup():
         id INT AUTO_INCREMENT PRIMARY KEY,
         id_discord BIGINT NOT NULL UNIQUE,
         nombre_completo VARCHAR(255) NOT NULL,
-        horas_base TIME DEFAULT '00:00:00'
+        horas_base TIME DEFAULT '00:00:00',
+        advertencias INT DEFAULT 0
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
     """)
 
@@ -144,7 +145,7 @@ async def ensure_db_setup():
         hora_entrada TIME NOT NULL,
         hora_salida TIME NULL,
         motivo TEXT NULL,
-        estado VARCHAR(20) DEFAULT 'Pendiente',
+        estado ENUM('abierto','valido','invalidado') DEFAULT 'abierto',
         FOREIGN KEY (practicante_id) REFERENCES practicante(id) ON DELETE CASCADE,
         UNIQUE KEY unique_recuperacion_dia (practicante_id, fecha_recuperacion)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

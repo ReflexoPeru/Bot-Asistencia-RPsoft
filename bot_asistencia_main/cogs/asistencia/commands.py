@@ -8,7 +8,7 @@ from datetime import datetime, time, timedelta
 import database as db
 import logging
 
-from bot.config.constants import HORARIO_ENTRADA_INICIO, HORARIO_ENTRADA_FIN, HORA_LIMITE_TARDANZA
+from bot.config.constants import HORARIO_ENTRADA_INICIO, HORARIO_ENTRADA_FIN, HORA_LIMITE_TARDANZA, HORAS_SEMANALES_REQUERIDAS
 
 class Asistencia(commands.GroupCog, name="asistencia"):
     """Cog para gestionar comandos de asistencia"""
@@ -246,6 +246,49 @@ class Asistencia(commands.GroupCog, name="asistencia"):
             else:
                  embed.add_field(name="❌ Estado de Asistencia", value="Falta injustificada", inline=False)
 
+        # --- Sección de Recuperación ---
+        query_rec = """
+        SELECT hora_entrada, hora_salida, estado,
+               TIMESTAMPDIFF(MINUTE, hora_entrada, hora_salida) AS rec_minutos
+        FROM asistencia_recuperacion
+        WHERE practicante_id = %s AND fecha_recuperacion = %s
+        ORDER BY id DESC LIMIT 1
+        """
+        rec = await db.fetch_one(query_rec, (practicante_id, fecha_actual))
+
+        if rec and rec['estado'] == 'valido':
+            from utils import format_timedelta
+            rec_entrada = format_timedelta(rec['hora_entrada'])
+            rec_salida = format_timedelta(rec['hora_salida'])
+            minutos = rec['rec_minutos'] or 0
+            horas_rec = minutos // 60
+            mins_rec = minutos % 60
+            embed.add_field(
+                name="⏰ Horas de Recuperación",
+                value=f"🟢 Inicio: {rec_entrada} | 🔴 Fin: {rec_salida}\n⏱️ Total recuperado: {horas_rec} hs {mins_rec} min",
+                inline=False
+            )
+        elif rec and rec['estado'] == 'abierto':
+            from utils import format_timedelta
+            rec_entrada = format_timedelta(rec['hora_entrada'])
+            embed.add_field(
+                name="⏰ Horas de Recuperación",
+                value=f"🟢 Inicio: {rec_entrada} | ⏳ En curso...",
+                inline=False
+            )
+        elif rec and rec['estado'] == 'invalidado':
+            embed.add_field(
+                name="⏰ Horas de Recuperación",
+                value="❌ Invalidada por advertencias acumuladas",
+                inline=False
+            )
+        else:
+            embed.add_field(
+                name="⏰ Horas de Recuperación",
+                value="No registradas",
+                inline=False
+            )
+
         embed.set_footer(text="Si tienes dudas, contacta con el administrador.")
 
         await interaction.followup.send(embed=embed, ephemeral=True)
@@ -278,10 +321,18 @@ class Asistencia(commands.GroupCog, name="asistencia"):
         fecha_inicio = fecha_actual - timedelta(days=dias)
 
         query_historial = """
-            SELECT date_format(a.fecha, '%%m-%%d') as fecha, a.hora_entrada, a.hora_salida, ea.estado
+            SELECT date_format(a.fecha, '%%m-%%d') as fecha, a.hora_entrada, a.hora_salida, ea.estado,
+                   ar.hora_entrada AS rec_entrada,
+                   ar.hora_salida  AS rec_salida,
+                   ar.estado       AS rec_estado,
+                   TIMESTAMPDIFF(MINUTE, ar.hora_entrada, ar.hora_salida) AS rec_minutos
             FROM asistencia a
             INNER JOIN estado_asistencia ea ON ea.id = a.estado_id
-            WHERE practicante_id = %s AND fecha >= %s
+            LEFT JOIN asistencia_recuperacion ar
+              ON ar.practicante_id = a.practicante_id
+              AND ar.fecha_recuperacion = a.fecha
+              AND ar.estado IN ('valido', 'invalidado')
+            WHERE a.practicante_id = %s AND a.fecha >= %s
             ORDER BY a.fecha DESC
         """
 
@@ -316,13 +367,56 @@ class Asistencia(commands.GroupCog, name="asistencia"):
             else:
                 estado_emoji = "🟠"  # Naranja para otros estados
 
+            # Info de recuperación del día
+            rec_info = ""
+            if resultado.get('rec_estado') == 'valido' and resultado.get('rec_minutos'):
+                rec_min = resultado['rec_minutos']
+                from utils import format_timedelta
+                rec_e = format_timedelta(resultado.get('rec_entrada'))
+                rec_s = format_timedelta(resultado.get('rec_salida'))
+                rec_info = f"\n⏰ Recuperación: {rec_e} → {rec_s} | Total: {rec_min // 60} hs {rec_min % 60} min"
+            elif resultado.get('rec_estado') == 'invalidado':
+                rec_info = "\n⏰ Recuperación: ❌ Invalidada por advertencias acumuladas"
+
             # Añadir cada día al Embed
             embed.add_field(
                 name=f"Fecha: **{fecha}** {estado_emoji}",
-                value=f"**Entrada**: {entrada} | **Salida**: {salida} | **Estado**: {estado}",
+                value=f"**Entrada**: {entrada} | **Salida**: {salida} | **Estado**: {estado}{rec_info}",
                 inline=False
             )
         
+        # --- Resumen semanal ---
+        query_resumen = """
+        SELECT
+          COALESCE(SUM(TIMESTAMPDIFF(MINUTE, a.hora_entrada, a.hora_salida)), 0) AS total_asist_min,
+          COALESCE(SUM(TIMESTAMPDIFF(MINUTE, ar.hora_entrada, ar.hora_salida)), 0) AS total_rec_min
+        FROM asistencia a
+        LEFT JOIN asistencia_recuperacion ar
+          ON ar.practicante_id = a.practicante_id
+          AND ar.fecha_recuperacion = a.fecha
+          AND ar.estado = 'valido'
+        WHERE a.practicante_id = %s
+          AND YEARWEEK(a.fecha, 1) = YEARWEEK(CURDATE(), 1)
+        """
+        resumen = await db.fetch_one(query_resumen, (practicante_id,))
+
+        total_asist = resumen['total_asist_min'] if resumen else 0
+        total_rec = resumen['total_rec_min'] if resumen else 0
+        total_min = total_asist + total_rec
+        requerido_min = HORAS_SEMANALES_REQUERIDAS * 60
+        faltantes = max(0, requerido_min - total_min)
+
+        resumen_text = (
+            f"✅ Horas de asistencia: {total_asist // 60} hs {total_asist % 60} min\n"
+            f"⏰ Horas de recuperación: {total_rec // 60} hs {total_rec % 60} min\n"
+            f"📌 Total acumulado: {total_min // 60} hs {total_min % 60} min / {HORAS_SEMANALES_REQUERIDAS}hs"
+        )
+        if faltantes > 0:
+            resumen_text += f"\n⚠️ Horas faltantes: {faltantes // 60} hs {faltantes % 60} min"
+
+        embed.add_field(name="─────────────────────────", value="\u200b", inline=False)
+        embed.add_field(name="📊 Resumen Semanal", value=resumen_text, inline=False)
+
         embed.set_footer(text="Si tienes dudas, contacta con el administrador.")
 
         await interaction.followup.send(embed=embed, ephemeral=True)
