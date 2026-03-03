@@ -128,7 +128,7 @@ class Recuperacion(commands.GroupCog, name="recuperacion"):
         embed.add_field(name="📅 Fecha", value=fecha_actual.strftime('%d-%m'), inline=True)
         embed.add_field(name="🟢 Hora de inicio", value=hora_actual.strftime('%H:%M'), inline=True)
         embed.set_footer(
-            text=f"Recordá registrar tu salida con /recuperacion salida antes de las {HORA_FIN_RECUPERACION.strftime('%H:%M')}hs."
+            text=f"Recuerda registrar tu salida con /recuperacion salida antes de las {HORA_FIN_RECUPERACION.strftime('%H:%M')}hs."
         )
 
         await interaction.followup.send(embed=embed, ephemeral=True)
