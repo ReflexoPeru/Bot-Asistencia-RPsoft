@@ -204,12 +204,29 @@ class ScheduledTasks(commands.Cog):
         )
 
         lista_resumen = ""
+        first_field = True
         for asis in asistencias:
             entrada = format_timedelta(asis['hora_entrada'])
             salida = format_timedelta(asis['hora_salida'])
-            lista_resumen += f"• **{asis['nombre_completo']}**: {entrada} - {salida} ({asis['estado']})\n"
+            linea = f"• **{asis['nombre_completo']}**: {entrada} - {salida} ({asis['estado']})\n"
+            if len(lista_resumen) + len(linea) > 1024:
+                embed.add_field(
+                    name="Resumen de hoy" if first_field else "\u200b",
+                    value=lista_resumen.rstrip(),
+                    inline=False
+                )
+                lista_resumen = ""
+                first_field = False
+            lista_resumen += linea
 
-        embed.add_field(name="Resumen de hoy", value=lista_resumen or "Sin registros", inline=False)
+        if lista_resumen:
+            embed.add_field(
+                name="Resumen de hoy" if first_field else "\u200b",
+                value=lista_resumen.rstrip(),
+                inline=False
+            )
+        elif first_field:
+            embed.add_field(name="Resumen de hoy", value="Sin registros", inline=False)
         embed.set_footer(text="Cierre de jornada automático")
 
         await canal.send(content="🔔 <@615932763161362636>, el reporte diario ya está listo.", embed=embed)
