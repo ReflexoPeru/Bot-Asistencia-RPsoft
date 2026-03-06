@@ -3,7 +3,6 @@
 import database as db
 import discord
 from discord import TextStyle, ui
-from utils import obtener_estado_asistencia
 
 
 class SalidaAnticipadaModal(ui.Modal, title="Salida Anticipada"):
@@ -27,21 +26,26 @@ class SalidaAnticipadaModal(ui.Modal, title="Salida Anticipada"):
         """Maneja el envío del modal"""
         motivo_guardado = self.motivo.value
 
-        # Actualizar la DB con la salida anticipada
-        estado_id = await obtener_estado_asistencia('Salida Anticipada')
-        query_update_salida = """
+        # Actualizar salida con estado 'temprano' (ya tenía su estado original)
+        query_update = """
             UPDATE asistencia 
-            SET hora_salida = %s, estado_id = %s, motivo = %s 
-            WHERE id = %s
+            SET hora_salida = $1 
+            WHERE id = $2
+        """
+        await db.execute_query(query_update, self.hora_actual, self.asistencia['id'])
+
+        # Crear reporte de salida anticipada
+        query_reporte = """
+            INSERT INTO reporte (practicante_id, descripcion, tipo, fecha)
+            VALUES ($1, $2, 'justificacion', CURRENT_DATE)
         """
         await db.execute_query(
-            query_update_salida,
-            (self.hora_actual, estado_id, motivo_guardado, self.asistencia['id'])
+            query_reporte,
+            self.asistencia['practicante_id'],
+            f"Salida anticipada: {motivo_guardado}"
         )
 
         await interaction.response.send_message(
-            f"{self.nombre_usuario}, tu salida anticipada ha sido registrada con éxito.",
+            f"{self.nombre_usuario}, tu salida anticipada ha sido registrada.",
             ephemeral=True
         )
-
-

@@ -9,8 +9,9 @@ import database as db
 from utils import LIMA_TZ, format_timedelta, es_domingo
 from bot.config.constants import (
     HORA_FIN_RECUPERACION,
-    HORA_CIERRE_REAL,
-    MAX_ADVERTENCIAS_CONSECUTIVAS,
+    HORA_GRACIA_RECUPERACION,
+    HORA_SALIDA_OFICIAL,
+    HORA_GRACIA_SALIDA,
 )
 
 
@@ -58,7 +59,6 @@ class ScheduledTasks(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
         self.metrics = BotMetrics()
-        # Guardar referencia en el bot para acceso desde main()
         bot.metrics = self.metrics
 
     def cog_unload(self):
@@ -67,6 +67,7 @@ class ScheduledTasks(commands.Cog):
         self.auto_reporte_diario_task.cancel()
         self.auto_registro_horario_task.cancel()
         self.auto_cierre_recuperacion.cancel()
+        self.auto_salida_asistencia.cancel()
 
     # --- Eventos para conteo de métricas ---
 
@@ -150,6 +151,73 @@ class ScheduledTasks(commands.Cog):
     async def before_sync_sheets(self):
         await self.bot.wait_until_ready()
 
+    # --- Tarea: Auto-salida de asistencia (14:15 Lima) ---
+
+    @tasks.loop(time=[datetime.time(hour=14, minute=15, tzinfo=LIMA_TZ)])
+    async def auto_salida_asistencia(self):
+        """Cierra todas las asistencias sin salida a las 14:15. Marca hora_salida = 14:00 y levanta reporte."""
+        if es_domingo():
+            return
+
+        logging.info("🔒 Ejecutando auto-salida de asistencia (14:15)...")
+
+        fecha_hoy = datetime.datetime.now(LIMA_TZ).date()
+
+        # 1. Buscar asistencias sin salida hoy
+        query_pendientes = """
+        SELECT a.id, a.practicante_id, p.id_discord, p.nombre_completo
+        FROM asistencia a
+        JOIN practicante p ON p.id = a.practicante_id
+        WHERE a.fecha = $1
+          AND a.hora_entrada IS NOT NULL
+          AND a.hora_salida IS NULL
+        """
+        registros = await db.fetch_all(query_pendientes, fecha_hoy)
+
+        if not registros:
+            logging.info("✅ No hay asistencias pendientes de cierre.")
+            return
+
+        for reg in registros:
+            try:
+                # 2. Cerrar con hora_salida = 14:00, marcar salida_auto
+                await db.execute_query(
+                    "UPDATE asistencia SET hora_salida = $1, salida_auto = TRUE WHERE id = $2",
+                    HORA_SALIDA_OFICIAL, reg['id']
+                )
+
+                # 3. Crear reporte de afk_salida
+                await db.execute_query(
+                    "INSERT INTO reporte (practicante_id, descripcion, tipo, fecha) VALUES ($1, $2, 'afk_salida', $3)",
+                    reg['practicante_id'],
+                    f"Salida automática a las 14:00 — no marcó salida antes de las 14:15",
+                    fecha_hoy
+                )
+
+                # 4. Notificar por DM
+                user = self.bot.get_user(reg['id_discord']) or await self.bot.fetch_user(reg['id_discord'])
+                if user:
+                    try:
+                        await user.send(
+                            f"🚨 **Salida registrada automáticamente**\n"
+                            f"No marcaste tu salida antes de las 14:15hs.\n"
+                            f"Se registró tu salida a las **14:00** y se levantó un reporte por AFK.\n"
+                            f"Contactá con el administrador si fue un error."
+                        )
+                    except discord.Forbidden:
+                        logging.warning(f"No se pudo enviar DM a {reg['nombre_completo']}")
+
+                logging.info(f"⚠️ Auto-salida para {reg['nombre_completo']}")
+
+            except Exception as e:
+                logging.error(f"Error cerrando asistencia ID {reg['id']}: {e}")
+
+        logging.info(f"🔒 Auto-salida completada. {len(registros)} registros procesados.")
+
+    @auto_salida_asistencia.before_loop
+    async def before_auto_salida(self):
+        await self.bot.wait_until_ready()
+
     # --- Tarea: Reporte Diario Automático (cada 15 min, después de 2:30 PM) ---
 
     @tasks.loop(minutes=15)
@@ -161,14 +229,17 @@ class ScheduledTasks(commands.Cog):
         fecha_hoy = ahora.date()
 
         # 1. Verificar si ya se envió hoy
-        query_check = "SELECT 1 FROM reportes_enviados WHERE fecha = %s"
-        ya_enviado = await db.fetch_one(query_check, (fecha_hoy,))
+        ya_enviado = await db.fetch_one(
+            "SELECT 1 FROM reportes_enviados WHERE fecha = $1", fecha_hoy
+        )
         if ya_enviado:
             return
 
         # 2. Verificar si hay salidas pendientes
-        query_pendientes = "SELECT COUNT(*) as count FROM asistencia WHERE fecha = %s AND hora_entrada IS NOT NULL AND hora_salida IS NULL"
-        pendientes = await db.fetch_one(query_pendientes, (fecha_hoy,))
+        pendientes = await db.fetch_one(
+            "SELECT COUNT(*) as count FROM asistencia WHERE fecha = $1 AND hora_entrada IS NOT NULL AND hora_salida IS NULL",
+            fecha_hoy
+        )
 
         if pendientes and pendientes['count'] > 0:
             logging.info(f"⏳ Reporte diario: {pendientes['count']} salidas pendientes. Postergando...")
@@ -184,14 +255,12 @@ class ScheduledTasks(commands.Cog):
 
         logging.info("📊 Todos han salido. Enviando reporte diario automático...")
 
-        query_asistencia = """
-        SELECT p.nombre_completo, a.hora_entrada, a.hora_salida, ea.estado
+        asistencias = await db.fetch_all("""
+        SELECT p.nombre_completo, a.hora_entrada, a.hora_salida, a.estado
         FROM practicante p
-        JOIN asistencia a ON p.id = a.practicante_id AND a.fecha = %s
-        JOIN estado_asistencia ea ON a.estado_id = ea.id
+        JOIN asistencia a ON p.id = a.practicante_id AND a.fecha = $1
         ORDER BY a.hora_entrada ASC
-        """
-        asistencias = await db.fetch_all(query_asistencia, (fecha_hoy,))
+        """, fecha_hoy)
 
         if not asistencias:
             return
@@ -203,12 +272,14 @@ class ScheduledTasks(commands.Cog):
             timestamp=ahora
         )
 
+        emoji_map = {'temprano': '✅', 'tarde': '⚠️', 'sobreHora': '🔴', 'falto': '❌', 'clases': '📚'}
         lista_resumen = ""
         first_field = True
         for asis in asistencias:
             entrada = format_timedelta(asis['hora_entrada'])
             salida = format_timedelta(asis['hora_salida'])
-            linea = f"• **{asis['nombre_completo']}**: {entrada} - {salida} ({asis['estado']})\n"
+            emoji = emoji_map.get(asis['estado'], '❓')
+            linea = f"• {emoji} **{asis['nombre_completo']}**: {entrada} - {salida} ({asis['estado']})\n"
             if len(lista_resumen) + len(linea) > 1024:
                 embed.add_field(
                     name="Resumen de hoy" if first_field else "\u200b",
@@ -231,8 +302,10 @@ class ScheduledTasks(commands.Cog):
 
         await canal.send(content="🔔 <@615932763161362636>, el reporte diario ya está listo.", embed=embed)
 
-        # 4. Marcar como enviado en la BD
-        await db.execute_query("INSERT INTO reportes_enviados (fecha) VALUES (%s)", (fecha_hoy,))
+        # 4. Marcar como enviado
+        await db.execute_query(
+            "INSERT INTO reportes_enviados (fecha) VALUES ($1)", fecha_hoy
+        )
         logging.info(f"✅ Reporte diario del {fecha_hoy} enviado correctamente.")
 
     @auto_reporte_diario_task.before_loop
@@ -256,40 +329,39 @@ class ScheduledTasks(commands.Cog):
             logging.error("❌ No se encontró el canal para registro horario automático")
             return
 
-        # 1. A tiempo (estado_id = 1 = Presente)
-        query_a_tiempo = """
+        # 1. A tiempo (temprano)
+        a_tiempo = await db.fetch_all("""
         SELECT p.nombre_completo, a.hora_entrada
         FROM asistencia a JOIN practicante p ON a.practicante_id = p.id
-        WHERE a.fecha = %s AND a.estado_id = 1
+        WHERE a.fecha = $1 AND a.estado = 'temprano'
         ORDER BY a.hora_entrada
-        """
-        a_tiempo = await db.fetch_all(query_a_tiempo, (fecha_actual,))
+        """, fecha_actual)
 
-        # 2. Tardanza (estado_id = 2, hora_entrada <= 09:00)
-        query_tardanza = """
+        # 2. Tardanza
+        tardanza = await db.fetch_all("""
         SELECT p.nombre_completo, a.hora_entrada
         FROM asistencia a JOIN practicante p ON a.practicante_id = p.id
-        WHERE a.fecha = %s AND a.estado_id = 2 AND a.hora_entrada <= '09:00:00'
+        WHERE a.fecha = $1 AND a.estado = 'tarde'
         ORDER BY a.hora_entrada
-        """
-        tardanza = await db.fetch_all(query_tardanza, (fecha_actual,))
+        """, fecha_actual)
 
-        # 3. Fuera del límite (hora_entrada > 09:00)
-        query_fuera = """
+        # 3. Sobre hora
+        fuera = await db.fetch_all("""
         SELECT p.nombre_completo, a.hora_entrada
         FROM asistencia a JOIN practicante p ON a.practicante_id = p.id
-        WHERE a.fecha = %s AND a.hora_entrada > '09:00:00'
+        WHERE a.fecha = $1 AND a.estado = 'sobreHora'
         ORDER BY a.hora_entrada
-        """
-        fuera = await db.fetch_all(query_fuera, (fecha_actual,))
+        """, fecha_actual)
 
-        def format_hora(td):
-            if td is None:
+        def format_hora(t):
+            if t is None:
                 return "---"
-            total_seconds = int(td.total_seconds()) if hasattr(td, 'total_seconds') else 0
-            hours = total_seconds // 3600
-            minutes = (total_seconds % 3600) // 60
-            return f"{hours:02d}:{minutes:02d}"
+            if isinstance(t, datetime.timedelta):
+                total = int(t.total_seconds())
+                return f"{total // 3600:02d}:{(total % 3600) // 60:02d}"
+            if isinstance(t, datetime.time):
+                return t.strftime('%H:%M')
+            return str(t)
 
         def agregar_lista_paginada(embed, registros):
             if not registros:
@@ -315,20 +387,23 @@ class ScheduledTasks(commands.Cog):
         agregar_lista_paginada(embed_verde, a_tiempo)
 
         embed_naranja = discord.Embed(
-            title=f"🟠 Llegaron con tardanza - {fecha_actual.strftime('%d/%m/%Y')}",
-            description=f"Practicantes que llegaron entre 8:10 y 9:00 a.m. ({len(tardanza)})",
+            title=f"🟠 Tardanza - {fecha_actual.strftime('%d/%m/%Y')}",
+            description=f"Practicantes que llegaron entre 8:11 y 9:00 a.m. ({len(tardanza)})",
             color=discord.Color.orange()
         )
         agregar_lista_paginada(embed_naranja, tardanza)
 
         embed_rojo = discord.Embed(
-            title=f"🔴 Llegaron fuera del límite 9:00 - {fecha_actual.strftime('%d/%m/%Y')}",
+            title=f"🔴 Sobre hora - {fecha_actual.strftime('%d/%m/%Y')}",
             description=f"Practicantes que llegaron después de las 9:00 a.m. ({len(fuera)})",
             color=discord.Color.red()
         )
         agregar_lista_paginada(embed_rojo, fuera)
 
-        await canal.send(content=f"📊 **Registro Horario Automático** — {hora_actual}", embeds=[embed_verde, embed_naranja, embed_rojo])
+        await canal.send(
+            content=f"📊 **Registro Horario Automático** — {hora_actual}",
+            embeds=[embed_verde, embed_naranja, embed_rojo]
+        )
         logging.info(f"✅ Registro horario automático enviado a las {hora_actual}")
 
     @auto_registro_horario_task.before_loop
@@ -337,107 +412,62 @@ class ScheduledTasks(commands.Cog):
 
     # --- Tarea: Cierre Automático de Recuperaciones (20:20 Lima) ---
 
-    @tasks.loop(time=[datetime.time(hour=HORA_CIERRE_REAL.hour, minute=HORA_CIERRE_REAL.minute, tzinfo=LIMA_TZ)])
+    @tasks.loop(time=[datetime.time(hour=20, minute=20, tzinfo=LIMA_TZ)])
     async def auto_cierre_recuperacion(self):
-        """Cierra todas las recuperaciones abiertas del día a las 20:20."""
+        """Cierra todas las recuperaciones abiertas del día a las 20:20.
+        Marca hora_salida = 20:00 y levanta reporte afk_salida."""
         if es_domingo():
             return
 
         logging.info("🔒 Ejecutando cierre automático de recuperaciones...")
 
+        fecha_hoy = datetime.datetime.now(LIMA_TZ).date()
+
         # 1. Obtener todos los registros abiertos del día
-        query_abiertos = """
-        SELECT ar.id, ar.practicante_id, p.id_discord, p.nombre_completo
-        FROM asistencia_recuperacion ar
-        JOIN practicante p ON p.id = ar.practicante_id
-        WHERE ar.fecha_recuperacion = CURDATE()
-          AND ar.estado = 'abierto'
-        """
-        registros = await db.fetch_all(query_abiertos)
+        registros = await db.fetch_all("""
+        SELECT r.id, r.practicante_id, p.id_discord, p.nombre_completo
+        FROM recuperacion r
+        JOIN practicante p ON p.id = r.practicante_id
+        WHERE r.fecha = $1 AND r.estado = 'abierto'
+        """, fecha_hoy)
 
         if not registros:
             logging.info("✅ No hay recuperaciones abiertas para cerrar.")
             return
 
-        hora_cierre_str = HORA_FIN_RECUPERACION.strftime('%H:%M')
-
         for reg in registros:
-            rec_id = reg['id']
-            practicante_id = reg['practicante_id']
-            discord_id = reg['id_discord']
-            nombre = reg['nombre_completo']
-
             try:
-                # 2. Cerrar registro con hora_salida = 20:00
+                # 2. Cerrar con hora_salida = 20:00, marcar salida_auto
                 await db.execute_query(
-                    "UPDATE asistencia_recuperacion SET hora_salida = %s WHERE id = %s",
-                    (HORA_FIN_RECUPERACION, rec_id)
+                    "UPDATE recuperacion SET hora_salida = $1, estado = 'valido', salida_auto = TRUE WHERE id = $2",
+                    HORA_FIN_RECUPERACION, reg['id']
                 )
 
-                # 3. Sumar advertencia
+                # 3. Crear reporte afk_salida
                 await db.execute_query(
-                    "UPDATE practicante SET advertencias = advertencias + 1 WHERE id = %s",
-                    (practicante_id,)
+                    "INSERT INTO reporte (practicante_id, descripcion, tipo, fecha) VALUES ($1, $2, 'afk_salida', $3)",
+                    reg['practicante_id'],
+                    f"Cierre automático de recuperación — no marcó salida antes de las 20:20",
+                    fecha_hoy
                 )
 
-                # 4. Obtener valor actualizado
-                prac = await db.fetch_one(
-                    "SELECT advertencias FROM practicante WHERE id = %s",
-                    (practicante_id,)
-                )
-                advertencias = prac['advertencias'] if prac else 1
+                # 4. Notificar por DM
+                user = self.bot.get_user(reg['id_discord']) or await self.bot.fetch_user(reg['id_discord'])
+                if user:
+                    try:
+                        await user.send(
+                            f"🚨 **Tu recuperación fue cerrada automáticamente.**\n"
+                            f"No registraste tu salida antes de las 20:20hs.\n"
+                            f"Se registraron tus horas hasta las **20:00**.\n"
+                            f"Se levantó un reporte por AFK."
+                        )
+                    except discord.Forbidden:
+                        logging.warning(f"No se pudo enviar DM a {reg['nombre_completo']}")
 
-                # 5. Enviar DM según cantidad de advertencias
-                user = self.bot.get_user(discord_id) or await self.bot.fetch_user(discord_id)
-
-                if advertencias >= MAX_ADVERTENCIAS_CONSECUTIVAS:
-                    # Invalidar registro y resetear contador
-                    await db.execute_query(
-                        "UPDATE asistencia_recuperacion SET estado = 'invalidado' WHERE id = %s",
-                        (rec_id,)
-                    )
-                    await db.execute_query(
-                        "UPDATE practicante SET advertencias = 0 WHERE id = %s",
-                        (practicante_id,)
-                    )
-
-                    if user:
-                        try:
-                            await user.send(
-                                f"❌ **Horas de recuperación invalidadas**\n"
-                                f"Acumulaste {MAX_ADVERTENCIAS_CONSECUTIVAS} advertencias consecutivas "
-                                f"por no cerrar tu recuperación a tiempo.\n"
-                                f"Las horas de recuperación de hoy **no serán contabilizadas**.\n"
-                                f"Contactá con el administrador si creés que es un error."
-                            )
-                        except discord.Forbidden:
-                            logging.warning(f"No se pudo enviar DM a {nombre} ({discord_id})")
-
-                    logging.warning(f"❌ Recuperación invalidada para {nombre} (3 advertencias)")
-                else:
-                    # Marcar como válido pero con advertencia
-                    await db.execute_query(
-                        "UPDATE asistencia_recuperacion SET estado = 'valido' WHERE id = %s",
-                        (rec_id,)
-                    )
-
-                    if user:
-                        try:
-                            await user.send(
-                                f"🚨 **Tu recuperación fue cerrada automáticamente.**\n"
-                                f"No registraste tu salida antes de las {HORA_CIERRE_REAL.strftime('%H:%M')}hs.\n"
-                                f"⏱️ Se registraron tus horas hasta las {hora_cierre_str}hs.\n"
-                                f"⚠️ Advertencia ({advertencias}/{MAX_ADVERTENCIAS_CONSECUTIVAS}). "
-                                f"Si acumulás {MAX_ADVERTENCIAS_CONSECUTIVAS} advertencias consecutivas, "
-                                f"tus horas de recuperación serán invalidadas."
-                            )
-                        except discord.Forbidden:
-                            logging.warning(f"No se pudo enviar DM a {nombre} ({discord_id})")
-
-                    logging.info(f"⚠️ Recuperación cerrada para {nombre} — Advertencia {advertencias}/{MAX_ADVERTENCIAS_CONSECUTIVAS}")
+                logging.info(f"⚠️ Recuperación cerrada para {reg['nombre_completo']}")
 
             except Exception as e:
-                logging.error(f"Error cerrando recuperación ID {rec_id} para {nombre}: {e}")
+                logging.error(f"Error cerrando recuperación ID {reg['id']}: {e}")
 
         logging.info(f"🔒 Cierre automático completado. {len(registros)} registros procesados.")
 
@@ -453,6 +483,7 @@ class ScheduledTasks(commands.Cog):
         self.auto_reporte_diario_task.start()
         self.auto_registro_horario_task.start()
         self.auto_cierre_recuperacion.start()
+        self.auto_salida_asistencia.start()
         logging.info("✅ Tareas programadas iniciadas.")
 
 

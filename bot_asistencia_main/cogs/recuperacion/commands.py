@@ -51,7 +51,7 @@ class Recuperacion(commands.GroupCog, name="recuperacion"):
         discord_id = interaction.user.id
         nombre_usuario = interaction.user.mention
 
-        practicante_id = await obtener_practicante(interaction, discord_id)
+        practicante_id = await obtener_practicante(interaction, discord_id, usar_followup=True)
         if not practicante_id:
             return
 
@@ -78,12 +78,12 @@ class Recuperacion(commands.GroupCog, name="recuperacion"):
 
         # 4. Verificar si ya tiene un registro abierto hoy
         query_abierto = """
-        SELECT id, hora_entrada FROM asistencia_recuperacion
-        WHERE practicante_id = %s
-          AND fecha_recuperacion = %s
+        SELECT id, hora_entrada FROM recuperacion
+        WHERE practicante_id = $1
+          AND fecha = $2
           AND estado = 'abierto'
         """
-        existente = await db.fetch_one(query_abierto, (practicante_id, fecha_actual))
+        existente = await db.fetch_one(query_abierto, practicante_id, fecha_actual)
 
         if existente:
             from utils import format_timedelta
@@ -95,14 +95,14 @@ class Recuperacion(commands.GroupCog, name="recuperacion"):
             )
             return
 
-        # 5. Verificar si ya tiene un registro valido/invalidado hoy (ya usó su recuperación del día)
+        # 5. Verificar si ya tiene un registro valido/invalidado hoy
         query_usado = """
-        SELECT id FROM asistencia_recuperacion
-        WHERE practicante_id = %s
-          AND fecha_recuperacion = %s
+        SELECT id FROM recuperacion
+        WHERE practicante_id = $1
+          AND fecha = $2
           AND estado IN ('valido', 'invalidado')
         """
-        ya_usado = await db.fetch_one(query_usado, (practicante_id, fecha_actual))
+        ya_usado = await db.fetch_one(query_usado, practicante_id, fecha_actual)
         if ya_usado:
             await interaction.followup.send(
                 "⚠️ Ya registraste una recuperación el día de hoy. Solo se permite una por día.",
@@ -112,11 +112,11 @@ class Recuperacion(commands.GroupCog, name="recuperacion"):
 
         # 6. INSERT
         query_insert = """
-        INSERT INTO asistencia_recuperacion
-          (practicante_id, fecha_recuperacion, hora_entrada, hora_salida, estado)
-        VALUES (%s, %s, %s, NULL, 'abierto')
+        INSERT INTO recuperacion
+          (practicante_id, fecha, hora_entrada, hora_salida, estado)
+        VALUES ($1, $2, $3, NULL, 'abierto')
         """
-        await db.execute_query(query_insert, (practicante_id, fecha_actual, hora_actual))
+        await db.execute_query(query_insert, practicante_id, fecha_actual, hora_actual)
         logging.info(f'Recuperación iniciada para {interaction.user.display_name}')
 
         # 7. Embed de confirmación
@@ -151,7 +151,7 @@ class Recuperacion(commands.GroupCog, name="recuperacion"):
         if not await canal_permitido(interaction):
             return
 
-        practicante_id = await obtener_practicante(interaction, interaction.user.id)
+        practicante_id = await obtener_practicante(interaction, interaction.user.id, usar_followup=True)
         if not practicante_id:
             return
 
@@ -162,12 +162,12 @@ class Recuperacion(commands.GroupCog, name="recuperacion"):
 
         # 1. Buscar registro abierto de hoy
         query_abierto = """
-        SELECT id, hora_entrada FROM asistencia_recuperacion
-        WHERE practicante_id = %s
-          AND fecha_recuperacion = %s
+        SELECT id, hora_entrada FROM recuperacion
+        WHERE practicante_id = $1
+          AND fecha = $2
           AND estado = 'abierto'
         """
-        rec = await db.fetch_one(query_abierto, (practicante_id, fecha_actual))
+        rec = await db.fetch_one(query_abierto, practicante_id, fecha_actual)
 
         if not rec:
             await interaction.followup.send(
@@ -188,14 +188,10 @@ class Recuperacion(commands.GroupCog, name="recuperacion"):
             hora_salida_db = HORA_FIN_RECUPERACION
             mensaje_extra = f"\n💡 Recordá marcar tu salida antes de las {HORA_FIN_RECUPERACION.strftime('%H:%M')}hs la próxima vez."
 
-        # 3. Actualizar registro y resetear advertencias
+        # 3. Actualizar registro
         await db.execute_query(
-            "UPDATE asistencia_recuperacion SET hora_salida = %s, estado = 'valido' WHERE id = %s",
-            (hora_salida_db, rec['id'])
-        )
-        await db.execute_query(
-            "UPDATE practicante SET advertencias = 0 WHERE id = %s",
-            (practicante_id,)
+            "UPDATE recuperacion SET hora_salida = $1, estado = 'valido' WHERE id = $2",
+            hora_salida_db, rec['id']
         )
 
         # 4. Calcular duración

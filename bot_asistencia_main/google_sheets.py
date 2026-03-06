@@ -8,34 +8,28 @@ SCOPES = [
     'https://www.googleapis.com/auth/spreadsheets',
     'https://www.googleapis.com/auth/drive'
 ]
-CREDENTIALS_FILE = '/app/credentials.json'  # Ruta en el contenedor Docker
-# Si estás probando localmente fuera de Docker, podrías necesitar ajustar la ruta
-# CREDENTIALS_FILE = 'credentials.json'
-SHEET_NAME_ENV = 'GOOGLE_SHEET_NAME' # Nombre de la hoja en .env
+CREDENTIALS_FILE = '/app/credentials.json'
+SHEET_NAME_ENV = 'GOOGLE_SHEET_NAME'
 
 def format_duration(td_str):
     """
-    Convierte un string de duración (HH:MM:SS o 'X days, HH:MM:SS')
-    al formato estricto [HH]:MM:SS.
-    Ejemplo: '1 day, 02:00:00' -> '26:00:00'
+    Convierte un string de duración o un timedelta al formato [HH]:MM:SS.
     """
-    if not td_str or td_str == 'None':
+    if not td_str or td_str == 'None' or str(td_str) == '0:00:00':
         return '00:00:00'
+
+    td_str = str(td_str)
 
     try:
         if 'day' in td_str:
-            # Formato: '1 day, 13:28:18' o '2 days, 13:28:18'
             parts = td_str.split(',')
             days_part = parts[0].strip()
             time_part = parts[1].strip()
-
             days = int(days_part.split(' ')[0])
             h, m, s = map(int, time_part.split(':'))
-
             total_hours = (days * 24) + h
             return f"{total_hours:02d}:{m:02d}:{s:02d}"
         else:
-            # Ya está en formato HH:MM:SS, o al menos no tiene días
             return td_str
     except Exception as e:
         logging.warning(f"⚠️ Error formateando duración '{td_str}': {e}")
@@ -44,27 +38,24 @@ def format_duration(td_str):
 def get_spanish_date(date_obj):
     """Retorna la fecha formateada en español."""
     days = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"]
-    months = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"]
-
+    months = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio",
+              "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"]
     day_name = days[date_obj.weekday()]
     month_name = months[date_obj.month - 1]
-
     return f"{day_name} {date_obj.day} {month_name} {date_obj.year}"
 
 def get_practicantes_from_sheet():
     """
     Lee la lista de practicantes desde Google Sheets.
-    Retorna una lista de diccionarios con 'id_discord', 'nombre', 'apellido'.
+    Retorna una lista de diccionarios con 'id_discord', 'nombre_completo', 'horas_base'.
     """
     sheet_name = os.getenv(SHEET_NAME_ENV, 'Bot_de_asistencia_2026')
 
-    # Verificar si existe el archivo de credenciales
     if not os.path.exists(CREDENTIALS_FILE) and not os.path.exists('credentials.json'):
-         # Fallback para pruebas locales si no está en /app
         if os.path.exists('credentials.json'):
             creds_path = 'credentials.json'
         else:
-            logging.warning(f"⚠️ No se encontró {CREDENTIALS_FILE}. La sincronización con Google Sheets no funcionará.")
+            logging.warning(f"⚠️ No se encontró {CREDENTIALS_FILE}.")
             return []
     else:
         creds_path = CREDENTIALS_FILE if os.path.exists(CREDENTIALS_FILE) else 'credentials.json'
@@ -73,87 +64,62 @@ def get_practicantes_from_sheet():
         creds = Credentials.from_service_account_file(creds_path, scopes=SCOPES)
         client = gspread.authorize(creds)
 
-        # Abrir la hoja de cálculo
         try:
             sheet = client.open(sheet_name).sheet1
         except gspread.SpreadsheetNotFound:
-            logging.error(f"❌ No se encontró la hoja de cálculo: '{sheet_name}'. Verifica el nombre.")
+            logging.error(f"❌ No se encontró la hoja: '{sheet_name}'.")
             return []
 
-        # Obtener todos los registros (asumiendo fila 1 = encabezados)
-        # Se espera: Timestamp, ID Discord, Nombre Completo
-        # Indices (0-based): 0=Timestamp, 1=ID Discord, 2=Nombre Completo
         rows = sheet.get_all_values()
-
         if len(rows) < 2:
-            return [] # Hoja vacía
+            return []
 
         practicantes = []
-
-        # Detectar índices de columnas por nombre (más robusto)
         headers = [h.lower() for h in rows[0]]
+
         try:
-            # Buscar columnas clave (ajusta 'id' y 'nombre' según tus preguntas del Form)
             idx_id = next(i for i, h in enumerate(headers) if 'id' in h and 'discord' in h)
             idx_nombre = next(i for i, h in enumerate(headers) if 'nombre' in h)
-
-            # Buscar columna opcional de Horas Base
             try:
                 idx_horas_base = next(i for i, h in enumerate(headers) if 'base' in h or 'acumuladas' in h)
             except StopIteration:
                 idx_horas_base = None
-
         except StopIteration:
-            logging.error("❌ No se encontraron las columnas 'ID Discord' o 'Nombre' en el Excel.")
+            logging.error("❌ Columnas 'ID Discord' o 'Nombre' no encontradas.")
             return []
 
-        for row in rows[1:]: # Saltar encabezado
-            if len(row) <= max(idx_id, idx_nombre): continue
+        for row in rows[1:]:
+            if len(row) <= max(idx_id, idx_nombre):
+                continue
 
             raw_id = row[idx_id].strip()
-            # Unificación de nombre completo:
-            # Detecta si hay columna de apellido separada. Si no existe o está vacía,
-            # asume que 'nombre' ya contiene el nombre completo.
             idx_apellido = next((i for i, h in enumerate(headers) if 'apellido' in h), None)
-
             nombre_part = row[idx_nombre].strip()
             apellido_part = row[idx_apellido].strip() if idx_apellido is not None and len(row) > idx_apellido else ""
 
-            # Si apellido está vacío o es igual a nombre, usar solo nombre
             if not apellido_part or apellido_part == nombre_part:
                 full_name_raw = nombre_part
             else:
                 full_name_raw = f"{nombre_part} {apellido_part}".strip()
 
-            # Normalizar formato (Title Case)
             nombre_completo = " ".join([word.capitalize() for word in full_name_raw.split()])
 
             horas_base = row[idx_horas_base].strip() if idx_horas_base is not None and len(row) > idx_horas_base else "00:00:00"
 
-            # Validar formato de horas base
             if horas_base and horas_base.isdigit():
                 horas_base = f"{horas_base}:00:00"
             elif not horas_base or ':' not in horas_base:
                 horas_base = "00:00:00"
-            elif '.' in horas_base and ':' not in horas_base:
-                 try:
-                     h = int(float(horas_base))
-                     horas_base = f"{h}:00:00"
-                 except:
-                     horas_base = "00:00:00"
 
             if not raw_id or not nombre_completo:
-                logging.debug(f"⏩ Fila omitida por ID o Nombre vacío: ID='{raw_id}', Nombre='{nombre_completo}'")
                 continue
 
             try:
-                # Limpiar ID
                 raw_id_clean = "".join(filter(str.isdigit, raw_id))
                 if not raw_id_clean:
                     if '.' in raw_id:
                         discord_id = int(float(raw_id))
                     else:
-                        logging.warning(f"⚠️ ID de Discord inválido (no contiene números): '{raw_id}'")
                         continue
                 else:
                     discord_id = int(raw_id_clean)
@@ -164,64 +130,83 @@ def get_practicantes_from_sheet():
                     'horas_base': horas_base
                 })
             except ValueError:
-                logging.warning(f"⚠️ ID inválido ignorado: {raw_id} ({nombre_completo})")
+                logging.warning(f"⚠️ ID inválido: {raw_id} ({nombre_completo})")
                 continue
 
-        logging.info(f"✅ Leídos {len(practicantes)} practicantes de Google Sheets (Formato unificado).")
+        logging.info(f"✅ {len(practicantes)} practicantes leídos de Google Sheets.")
         return practicantes
 
     except Exception as e:
-        logging.error(f"❌ Error crítico en sync Google Sheets: {e}")
+        logging.error(f"❌ Error en Google Sheets: {e}")
         return []
 
+
 async def sync_practicantes_to_db():
-    """
-    Función principal para sincronizar datos de Sheets hacia la BD.
-    Sincroniza SOLO ID, Nombre Completo y Horas Base.
-    """
+    """Sincroniza practicantes desde Sheets a PostgreSQL (no sobrescribe retirados)."""
     import database as db
+    import datetime
 
     practicantes = get_practicantes_from_sheet()
-
     if not practicantes:
         return
 
     for p in practicantes:
-        # Insertar o actualizar con esquema simplificado
-        # Se asume que la tabla 'practicante' ha sido actualizada para tener 'nombre_completo'
-        query_insert = """
+        # Convertir HH:MM:SS string a timedelta para asyncpg INTERVAL
+        horas_str = p['horas_base']
+        try:
+            parts = horas_str.split(':')
+            h = int(parts[0]) if len(parts) > 0 else 0
+            m = int(parts[1]) if len(parts) > 1 else 0
+            s = int(parts[2]) if len(parts) > 2 else 0
+            horas_td = datetime.timedelta(hours=h, minutes=m, seconds=s)
+        except (ValueError, IndexError):
+            horas_td = datetime.timedelta(0)
+
+        # ON CONFLICT: actualizar nombre y horas_base, pero NO tocar retirados
+        query = """
         INSERT INTO practicante (id_discord, nombre_completo, horas_base)
-        VALUES (%s, %s, %s)
-        ON DUPLICATE KEY UPDATE 
-            nombre_completo = VALUES(nombre_completo),
-            horas_base = VALUES(horas_base)
+        VALUES ($1, $2, $3)
+        ON CONFLICT (id_discord) DO UPDATE SET
+            nombre_completo = EXCLUDED.nombre_completo,
+            horas_base = EXCLUDED.horas_base
+        WHERE practicante.estado = 'activo'
         """
+        await db.execute_query(query, p['id_discord'], p['nombre_completo'], horas_td)
 
-        await db.execute_query(query_insert, (
-            p['id_discord'], p['nombre_completo'], p['horas_base']
-        ))
+    logging.info("📥 Sincronización con Google Sheets completa.")
 
-    logging.info(f"📥 Sincronización completa (Nombres unificados) desde Sheets.")
 
 async def export_report_to_sheet():
-    """
-    Lee la vista reporte_asistencia de la BD y la exporta a una nueva pestaña en Google Sheets.
-    """
+    """Exporta el reporte de asistencia y resumen general a Google Sheets."""
     import database as db
 
-    # 1. Obtener datos de la base de datos
-    query = "SELECT * FROM reporte_asistencia ORDER BY Fecha DESC, Nombre_Completo ASC"
-    data = await db.fetch_all(query)
+    # Query directo (ya no dependemos de la vista reporte_asistencia)
+    query_detallado = """
+    SELECT
+        a.fecha AS "Fecha",
+        p.nombre_completo AS "Nombre_Completo",
+        a.hora_entrada AS "Entrada",
+        a.hora_salida AS "Salida",
+        CASE
+            WHEN a.hora_salida IS NOT NULL AND a.hora_entrada IS NOT NULL THEN
+                a.hora_salida - a.hora_entrada
+            ELSE INTERVAL '0 seconds'
+        END AS "Horas_Sesion",
+        a.estado AS "Estado"
+    FROM asistencia a
+    JOIN practicante p ON a.practicante_id = p.id
+    ORDER BY a.fecha DESC, p.nombre_completo ASC
+    """
+    data = await db.fetch_all(query_detallado)
 
     if not data:
-        logging.info("↻ Reporte Sheets: No hay datos para exportar.")
+        logging.info("↻ Reporte Sheets: No hay datos.")
         return
 
     sheet_name = os.getenv(SHEET_NAME_ENV, 'Bot_de_asistencia_2026')
 
-    # Verificar si existe el archivo de credenciales
     if not os.path.exists(CREDENTIALS_FILE) and not os.path.exists('credentials.json'):
-        logging.warning("⚠️ No se encontraron credenciales para Google Sheets.")
+        logging.warning("⚠️ Sin credenciales de Google Sheets.")
         return
 
     creds_path = CREDENTIALS_FILE if os.path.exists(CREDENTIALS_FILE) else 'credentials.json'
@@ -231,26 +216,24 @@ async def export_report_to_sheet():
         client = gspread.authorize(creds)
         spreadsheet = client.open(sheet_name)
 
-        # 2. Obtener o crear la hoja de reporte detallado
+        # ------ Reporte Detallado ------
         try:
             worksheet_det = spreadsheet.worksheet("Reporte Detallado")
         except gspread.WorksheetNotFound:
             worksheet_det = spreadsheet.add_worksheet(title="Reporte Detallado", rows="1000", cols="10")
 
-        # 3. Formatear datos para gspread (Detallado)
         headers_det = ["Fecha", "Nombre Completo", "Entrada", "Salida", "Horas Sesión", "Estado"]
         rows_det = [headers_det]
 
         last_date = None
-        header_positions = [] # Para almacenar índices de filas de encabezado
+        header_positions = []
 
         for row in data:
             current_date = row['Fecha']
             if current_date != last_date:
-                # Insertar fila de encabezado de fecha
                 date_str = get_spanish_date(current_date)
                 rows_det.append([date_str, "", "", "", "", ""])
-                header_positions.append(len(rows_det)) # 1-indexed para Sheets
+                header_positions.append(len(rows_det))
                 last_date = current_date
 
             rows_det.append([
@@ -262,18 +245,13 @@ async def export_report_to_sheet():
                 row['Estado']
             ])
 
-        # 4. Limpiar y actualizar Detallado
         worksheet_det.clear()
-
-        # Resetear formato de toda la hoja (A1:Z500) para evitar colores/estilos residuales
         worksheet_det.format("A1:Z1000", {
             "backgroundColor": {"red": 1.0, "green": 1.0, "blue": 1.0},
             "textFormat": {"bold": False, "foregroundColor": {"red": 0.0, "green": 0.0, "blue": 0.0}, "fontSize": 10}
         })
-
         worksheet_det.update('A1', rows_det)
 
-        # Aplicar formato a los encabezados de fecha (celeste claro y negrita)
         if header_positions:
             for pos in header_positions:
                 range_str = f"A{pos}:F{pos}"
@@ -282,42 +260,42 @@ async def export_report_to_sheet():
                     "textFormat": {"bold": True, "fontSize": 11}
                 })
 
-        # Formato para el encabezado principal (A1:F1)
         worksheet_det.format("A1:F1", {
             "backgroundColor": {"red": 0.2, "green": 0.2, "blue": 0.2},
             "textFormat": {"foregroundColor": {"red": 1.0, "green": 1.0, "blue": 1.0}, "bold": True}
         })
 
-        # ---------------------------------------------------------
-        # 5. Generar Hoja de "Resumen General" (Acumulado por alumno)
-        # ---------------------------------------------------------
+        # ------ Resumen General ------
         try:
             worksheet_res = spreadsheet.worksheet("Resumen General")
         except gspread.WorksheetNotFound:
             worksheet_res = spreadsheet.add_worksheet(title="Resumen General", rows="100", cols="6")
 
-        # Consulta de resumen: agrupa horas por practicante
         query_resumen = """
-        SELECT 
-            p.nombre_completo, 
-            IFNULL(p.horas_base, '00:00:00') as Horas_Base,
-            -- Suma de horas trabajadas (diferencia salida - entrada)
-            SEC_TO_TIME(SUM(IFNULL(TIME_TO_SEC(TIMEDIFF(a.hora_salida, a.hora_entrada)), 0))) as Horas_Trabajadas_Bot,
-            -- Total (Base + Bot)
-            ADDTIME(
-                IFNULL(p.horas_base, '00:00:00'),
-                SEC_TO_TIME(SUM(IFNULL(TIME_TO_SEC(TIMEDIFF(a.hora_salida, a.hora_entrada)), 0)))
-            ) as Total_Acumulado,
-            -- Meta (480 horas)
-            '480:00:00' as Meta
+        SELECT
+            p.nombre_completo,
+            COALESCE(p.horas_base, INTERVAL '0 seconds') AS "Horas_Base",
+            COALESCE(SUM(
+                CASE WHEN a.hora_salida IS NOT NULL AND a.hora_entrada IS NOT NULL
+                     THEN a.hora_salida - a.hora_entrada
+                     ELSE INTERVAL '0 seconds'
+                END
+            ), INTERVAL '0 seconds') AS "Horas_Trabajadas_Bot",
+            COALESCE(p.horas_base, INTERVAL '0 seconds') + COALESCE(SUM(
+                CASE WHEN a.hora_salida IS NOT NULL AND a.hora_entrada IS NOT NULL
+                     THEN a.hora_salida - a.hora_entrada
+                     ELSE INTERVAL '0 seconds'
+                END
+            ), INTERVAL '0 seconds') AS "Total_Acumulado"
         FROM practicante p
         LEFT JOIN asistencia a ON p.id = a.practicante_id AND a.hora_salida IS NOT NULL
+        WHERE p.estado = 'activo'
         GROUP BY p.id, p.nombre_completo, p.horas_base
-        ORDER BY Total_Acumulado DESC
+        ORDER BY "Total_Acumulado" DESC
         """
         data_resumen = await db.fetch_all(query_resumen)
 
-        headers_res = ["Nombre Completo", "Horas Base (Anteriores)", "Horas Bot (Nuevas)", "TOTAL ACUMULADO", "Meta (480h)"]
+        headers_res = ["Nombre Completo", "Horas Base", "Horas Bot", "TOTAL ACUMULADO", "Meta (480h)"]
         rows_res = [headers_res]
 
         for row in data_resumen:
@@ -326,89 +304,13 @@ async def export_report_to_sheet():
                 format_duration(str(row['Horas_Base'])),
                 format_duration(str(row['Horas_Trabajadas_Bot'])),
                 format_duration(str(row['Total_Acumulado'])),
-                row['Meta']
+                '480:00:00'
             ])
 
         worksheet_res.clear()
         worksheet_res.update('A1', rows_res)
 
-        logging.info(f"📊 Reportes actualizados: 'Reporte Detallado' ({len(data)} filas) y 'Resumen General' ({len(data_resumen)} filas).")
-
-        # ---------------------------------------------------------
-        # 6. Generar Hoja de "Reporte Anti-Farming" (Incidentes)
-        # ---------------------------------------------------------
-        try:
-            worksheet_af = spreadsheet.worksheet("Reporte Anti-Farming")
-        except gspread.WorksheetNotFound:
-            worksheet_af = spreadsheet.add_worksheet(title="Reporte Anti-Farming", rows="100", cols="6")
-
-        # --- NUEVO: Leer validaciones antes de limpiar ---
-        try:
-            current_af_data = worksheet_af.get_all_values()
-            if len(current_af_data) > 1:
-                headers_af_current = [h.lower() for h in current_af_data[0]]
-                # Encontrar índices
-                try:
-                    idx_id_af = next(i for i, h in enumerate(headers_af_current) if 'id' in h or 'discord' in h)
-                    idx_fecha_af = next(i for i, h in enumerate(headers_af_current) if 'fecha' in h)
-                    idx_val_af = next(i for i, h in enumerate(headers_af_current) if 'validado' in h)
-
-                    for row_af in current_af_data[1:]:
-                        if len(row_af) > idx_val_af and row_af[idx_val_af].strip().upper() == "OK":
-                            discord_id_val = row_af[idx_id_af].strip()
-                            fecha_val = row_af[idx_fecha_af].strip()
-
-                            # Limpiar ID
-                            discord_id_val = "".join(filter(str.isdigit, discord_id_val))
-
-                            if discord_id_val and fecha_val:
-                                logging.info(f"💎 Validando horas extra para ID {discord_id_val} el {fecha_val}...")
-                                query_validate = """
-                                UPDATE asistencia a 
-                                JOIN practicante p ON a.practicante_id = p.id 
-                                SET a.hora_salida = ADDTIME(a.hora_salida, a.horas_extra), 
-                                    a.horas_extra = '00:00:00',
-                                    a.observaciones = CONCAT(IFNULL(a.observaciones, ''), '\n[Sistema] Horas validadas mediante Google Sheets.')
-                                WHERE p.id_discord = %s AND a.fecha = %s AND a.horas_extra > '00:00:00'
-                                """
-                                await db.execute_query(query_validate, (discord_id_val, fecha_val))
-                except StopIteration:
-                    logging.warning("⚠️ No se pudieron encontrar las columnas necesarias en Reporte Anti-Farming para validar.")
-        except Exception as e:
-            logging.error(f"⚠️ Error al intentar leer validaciones de Anti-Farming: {e}")
-
-        # Consulta de incidentes (donde horas_extra > 0)
-        query_af = """
-        SELECT 
-            p.id_discord,
-            p.nombre_completo,
-            a.fecha,
-            a.horas_extra,
-            a.hora_salida as hora_limite_aplicada
-        FROM asistencia a
-        JOIN practicante p ON a.practicante_id = p.id
-        WHERE a.horas_extra > '00:00:00'
-        ORDER BY a.fecha DESC
-        """
-        data_af = await db.fetch_all(query_af)
-
-        headers_af = ["ID Discord", "Nombre Completo", "Fecha", "Horas Extra (No Contadas)", "Salida Automática", "Validado (X/OK)"]
-        rows_af = [headers_af]
-
-        for row in data_af:
-            rows_af.append([
-                str(row['id_discord']),
-                row['nombre_completo'],
-                str(row['fecha']),
-                str(row['horas_extra']),
-                str(row['hora_limite_aplicada']),
-                ""  # Columna vacía para validación manual
-            ])
-
-        worksheet_af.clear()
-        worksheet_af.update('A1', rows_af)
-        logging.info(f"🚨 Reporte Anti-Farming actualizado: {len(data_af)} incidentes pendientes.")
-
+        logging.info(f"📊 Reportes actualizados en Sheets: Detallado ({len(data)}) y Resumen ({len(data_resumen)}).")
 
     except Exception as e:
-        logging.error(f"❌ Error al exportar reporte a Google Sheets: {e}")
+        logging.error(f"❌ Error exportando a Google Sheets: {e}")

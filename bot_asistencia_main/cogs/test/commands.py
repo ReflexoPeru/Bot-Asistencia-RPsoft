@@ -7,7 +7,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 import database as db
 import logging
-from utils import obtener_practicante, obtener_estado_asistencia, LIMA_TZ
+from utils import obtener_practicante, LIMA_TZ
 
 @app_commands.default_permissions(administrator=True)
 class Test(commands.GroupCog, name="test"):
@@ -21,42 +21,48 @@ class Test(commands.GroupCog, name="test"):
     @app_commands.describe(
         accion="Entrada o Salida",
         id_discord="ID de Discord del practicante (opcional, por defecto tú)",
-        estado="Estado manual (Presente, Tardanza, etc.)",
-        validar_dispositivo="Si es True, aplicará las reglas de Móvil/Invisible"
+        estado="Estado manual (temprano, tarde, sobreHora, clases)"
     )
     @app_commands.choices(accion=[
         app_commands.Choice(name="Entrada", value="entrada"),
         app_commands.Choice(name="Salida", value="salida")
     ])
-    async def test_asistencia(self, interaction: discord.Interaction, accion: str, id_discord: str = None, estado: str = "Presente", validar_dispositivo: bool = False):
+    async def test_asistencia(self, interaction: discord.Interaction, accion: str, id_discord: str = None, estado: str = "temprano"):
         await interaction.response.defer(ephemeral=True)
-        
-        from utils import validar_dispositivo_pc
-        
-        # Si el admin quiere probar la restricción
-        if validar_dispositivo:
-            if not await validar_dispositivo_pc(interaction):
-                return
 
         target_id = int(id_discord) if id_discord else interaction.user.id
         ahora = datetime.now(LIMA_TZ)
         fecha_actual = ahora.date()
         hora_actual = ahora.time()
 
-        practicante_id = await obtener_practicante(interaction, target_id)
+        practicante_id = await obtener_practicante(interaction, target_id, usar_followup=True)
         if not practicante_id:
             return
 
         if accion == "entrada":
-            estado_id = await obtener_estado_asistencia(estado)
-            query = "INSERT INTO asistencia (practicante_id, fecha, hora_entrada, estado_id) VALUES (%s, %s, %s, %s) ON DUPLICATE KEY UPDATE hora_entrada = VALUES(hora_entrada), estado_id = VALUES(estado_id)"
-            await db.execute_query(query, (practicante_id, fecha_actual, hora_actual, estado_id))
-            await interaction.followup.send(f"✅ [TEST] Entrada registrada para <@{target_id}> a las {hora_actual.strftime('%H:%M')}.", ephemeral=True)
+            query = """
+            INSERT INTO asistencia (practicante_id, estado, fecha, hora_entrada)
+            VALUES ($1, $2, $3, $4)
+            ON CONFLICT (practicante_id, fecha) DO UPDATE SET
+                hora_entrada = EXCLUDED.hora_entrada,
+                estado = EXCLUDED.estado
+            """
+            await db.execute_query(query, practicante_id, estado, fecha_actual, hora_actual)
+            await interaction.followup.send(
+                f"✅ [TEST] Entrada registrada para <@{target_id}> a las {hora_actual.strftime('%H:%M')} ({estado}).",
+                ephemeral=True
+            )
         
-        else: # salida
-            query = "UPDATE asistencia SET hora_salida = %s WHERE practicante_id = %s AND fecha = %s AND hora_salida IS NULL"
-            result = await db.execute_query(query, (hora_actual, practicante_id, fecha_actual))
-            await interaction.followup.send(f"✅ [TEST] Salida registrada para <@{target_id}> a las {hora_actual.strftime('%H:%M')}.", ephemeral=True)
+        else:  # salida
+            query = """
+            UPDATE asistencia SET hora_salida = $1
+            WHERE practicante_id = $2 AND fecha = $3 AND hora_salida IS NULL
+            """
+            await db.execute_query(query, hora_actual, practicante_id, fecha_actual)
+            await interaction.followup.send(
+                f"✅ [TEST] Salida registrada para <@{target_id}> a las {hora_actual.strftime('%H:%M')}.",
+                ephemeral=True
+            )
 
 async def setup(bot):
     await bot.add_cog(Test(bot))

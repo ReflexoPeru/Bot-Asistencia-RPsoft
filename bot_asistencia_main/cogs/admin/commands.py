@@ -8,399 +8,609 @@ from datetime import datetime, time
 from zoneinfo import ZoneInfo
 import database as db
 import logging
-import utils
-from utils import obtener_practicante, obtener_estado_asistencia, format_timedelta, format_timedelta_total, es_admin_bot
+from utils import obtener_practicante, format_timedelta, format_timedelta_total, es_admin_bot, DIAS_CLASE, LIMA_TZ
+from bot.config.constants import DIAS_SEMANA, MAX_BANEOS_RETIRO
 
-LIMA_TZ = ZoneInfo("America/Lima")
 
-class ConfirmacionEliminar(discord.ui.View):
-    def __init__(self, interaction, id_discord, nombre_completo):
+# ──────────────────────────────────────────────
+# View con botones para listas del dashboard
+# ──────────────────────────────────────────────
+class DashboardListasView(discord.ui.View):
+    """Botones interactivos para ver cada lista del dashboard."""
+
+    def __init__(self, fecha):
+        super().__init__(timeout=300)
+        self.fecha = fecha
+
+    async def _enviar_lista(self, interaction, titulo, query, *args):
+        await interaction.response.defer(ephemeral=True)
+        rows = await db.fetch_all(query, *args)
+        if not rows:
+            await interaction.followup.send(f"📭 {titulo}: sin resultados.", ephemeral=True)
+            return
+        lineas = []
+        for i, r in enumerate(rows, 1):
+            nombre = r.get('nombre_completo', r.get('nombre_discord', 'N/A'))
+            extra = ""
+            if 'hora_entrada' in r and r['hora_entrada']:
+                extra = f" — {format_timedelta(r['hora_entrada'])}"
+            if 'descripcion' in r:
+                extra = f" — {r['descripcion'][:50]}"
+            if 'fecha_retiro' in r and r['fecha_retiro']:
+                extra = f" — Retirado: {r['fecha_retiro'].strftime('%d/%m')}"
+            lineas.append(f"`{i}.` {nombre}{extra}")
+
+        texto = "\n".join(lineas[:25])  # Máx 25 para no exceder embed
+        embed = Embed(title=f"📋 {titulo}", description=texto, color=Color.blue())
+        embed.set_footer(text=f"Total: {len(rows)}")
+        await interaction.followup.send(embed=embed, ephemeral=True)
+
+    @discord.ui.button(label="📋 Retirados", style=discord.ButtonStyle.secondary, row=0)
+    async def lista_retirados(self, interaction, button):
+        query = "SELECT nombre_completo, fecha_retiro, motivo_retiro FROM practicante WHERE estado = 'retirado' ORDER BY fecha_retiro DESC"
+        await self._enviar_lista(interaction, "Retirados", query)
+
+    @discord.ui.button(label="📋 Justificados", style=discord.ButtonStyle.secondary, row=0)
+    async def lista_justificados(self, interaction, button):
+        query = """
+        SELECT p.nombre_completo, r.descripcion FROM reporte r
+        JOIN practicante p ON r.practicante_id = p.id
+        WHERE r.tipo = 'justificacion' AND r.fecha = $1
+        ORDER BY p.nombre_completo
+        """
+        await self._enviar_lista(interaction, "Justificados hoy", query, self.fecha)
+
+    @discord.ui.button(label="📋 Tardanzas", style=discord.ButtonStyle.secondary, row=0)
+    async def lista_tardanzas(self, interaction, button):
+        query = """
+        SELECT p.nombre_completo, a.hora_entrada, a.estado FROM asistencia a
+        JOIN practicante p ON a.practicante_id = p.id
+        WHERE a.fecha = $1 AND a.estado IN ('tarde', 'sobreHora')
+        ORDER BY a.hora_entrada
+        """
+        await self._enviar_lista(interaction, "Tardanzas hoy", query, self.fecha)
+
+    @discord.ui.button(label="📋 Faltas", style=discord.ButtonStyle.danger, row=1)
+    async def lista_faltas(self, interaction, button):
+        hoy = datetime.now(LIMA_TZ).weekday()
+        col = DIAS_CLASE.get(hoy, 'clase_lunes')
+        query = f"""
+        SELECT p.nombre_completo FROM practicante p
+        WHERE p.estado = 'activo'
+          AND p.{col} = FALSE
+          AND NOT EXISTS (SELECT 1 FROM asistencia a WHERE a.practicante_id = p.id AND a.fecha = $1)
+          AND NOT EXISTS (SELECT 1 FROM reporte r WHERE r.practicante_id = p.id AND r.fecha = $1 AND r.tipo = 'justificacion')
+        ORDER BY p.nombre_completo
+        """
+        await self._enviar_lista(interaction, "Faltas hoy", query, self.fecha)
+
+    @discord.ui.button(label="📋 Acum. Tardanzas", style=discord.ButtonStyle.secondary, row=1)
+    async def lista_tardanzas_acum(self, interaction, button):
+        query = """
+        SELECT p.nombre_completo, COUNT(*) AS total FROM asistencia a
+        JOIN practicante p ON a.practicante_id = p.id
+        WHERE a.estado IN ('tarde', 'sobreHora') AND p.estado = 'activo'
+        GROUP BY p.nombre_completo
+        ORDER BY total DESC
+        LIMIT 25
+        """
+        await interaction.response.defer(ephemeral=True)
+        rows = await db.fetch_all(query)
+        if not rows:
+            await interaction.followup.send("📭 Sin acumulación de tardanzas.", ephemeral=True)
+            return
+        lineas = [f"`{i}.` {r['nombre_completo']} — **{r['total']}** tardanzas" for i, r in enumerate(rows, 1)]
+        embed = Embed(title="📋 Acumulación de Tardanzas", description="\n".join(lineas), color=Color.orange())
+        await interaction.followup.send(embed=embed, ephemeral=True)
+
+    @discord.ui.button(label="📋 Ret. Hoy", style=discord.ButtonStyle.danger, row=1)
+    async def lista_retirados_hoy(self, interaction, button):
+        query = "SELECT nombre_completo, motivo_retiro FROM practicante WHERE fecha_retiro = $1 ORDER BY nombre_completo"
+        await self._enviar_lista(interaction, "Retirados hoy", query, self.fecha)
+
+
+# ──────────────────────────────────────────────
+# Confirmación de eliminación (soft-delete)
+# ──────────────────────────────────────────────
+class ConfirmacionRetirar(discord.ui.View):
+    def __init__(self, practicante_id, nombre, motivo, admin_id):
         super().__init__(timeout=60)
-        self.interaction = interaction
-        self.id_discord = id_discord
-        self.nombre_completo = nombre_completo
+        self.practicante_id = practicante_id
+        self.nombre = nombre
+        self.motivo = motivo
+        self.admin_id = admin_id
 
-    @discord.ui.button(label="Confirmar Eliminación", style=discord.ButtonStyle.danger, emoji="🗑️")
-    async def confirmar(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if interaction.user.id != self.interaction.user.id:
-            return await interaction.response.send_message("❌ Solo quien inició el comando puede confirmar.", ephemeral=True)
-        
-        await interaction.response.defer()
-        try:
-            query_check = "SELECT id FROM practicante WHERE id_discord = %s"
-            practicante = await db.fetch_one(query_check, (self.id_discord,))
-            if practicante:
-                await db.execute_query("DELETE FROM asistencia WHERE practicante_id = %s", (practicante['id'],))
-                await db.execute_query("DELETE FROM asistencia_recuperacion WHERE practicante_id = %s", (practicante['id'],))
-                await db.execute_query("DELETE FROM practicante WHERE id = %s", (practicante['id'],))
-                await interaction.followup.edit_message(message_id=interaction.message.id, content=f"✅ **{self.nombre_completo}** eliminado.", view=None)
-            else:
-                await interaction.followup.send("❌ No encontrado.", ephemeral=True)
-        except Exception as e:
-            await interaction.followup.send(f"❌ Error: {e}", ephemeral=True)
+    @discord.ui.button(label="✅ Confirmar retiro", style=discord.ButtonStyle.danger)
+    async def confirmar(self, interaction: discord.Interaction, button):
+        await db.execute_query(
+            "UPDATE practicante SET estado = 'retirado', fecha_retiro = CURRENT_DATE, motivo_retiro = $1 WHERE id = $2",
+            self.motivo, self.practicante_id
+        )
+        # Crear reporte de retiro
+        await db.execute_query(
+            "INSERT INTO reporte (practicante_id, descripcion, tipo, creado_por) VALUES ($1, $2, 'retiro', $3)",
+            self.practicante_id, f"Retirado: {self.motivo}", self.admin_id
+        )
+        await interaction.response.edit_message(
+            content=f"✅ **{self.nombre}** ha sido retirado. Motivo: {self.motivo}",
+            view=None
+        )
 
-    @discord.ui.button(label="Cancelar", style=discord.ButtonStyle.secondary)
-    async def cancelar(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.edit_message(content="❌ Cancelado.", view=None)
+    @discord.ui.button(label="❌ Cancelar", style=discord.ButtonStyle.secondary)
+    async def cancelar(self, interaction: discord.Interaction, button):
+        await interaction.response.edit_message(content="❌ Operación cancelada.", view=None)
 
+
+# ──────────────────────────────────────────────
+# Admin Cog
+# ──────────────────────────────────────────────
 class Admin(commands.GroupCog, name="admin"):
     """Cog para comandos administrativos"""
 
     def __init__(self, bot: commands.Bot):
         super().__init__()
         self.bot = bot
-        self.AUTHORIZED_USERS = [615932763161362636, 824692049084678144] # Renso - Wilber
 
-    async def interaction_check(self, interaction: discord.Interaction) -> bool:
-        if interaction.user.id in self.AUTHORIZED_USERS: return True
-        try:
-            if await es_admin_bot(interaction.user.id): return True
-        except: pass
-        if interaction.user.guild_permissions.administrator: return True
-        await interaction.response.send_message("❌ Sin permisos.", ephemeral=True)
-        return False
+    async def _verificar_admin(self, interaction) -> bool:
+        if not await es_admin_bot(interaction.user.id):
+            await interaction.followup.send("❌ No tienes permisos de administrador.", ephemeral=True)
+            return False
+        return True
 
-    @app_commands.command(name='reporte_hoy', description="Ver el estado de todos los practicantes hoy")
-    async def reporte_hoy(self, interaction: discord.Interaction):
-        await interaction.response.defer(ephemeral=True)
-        fecha_actual = datetime.now(LIMA_TZ).date()
-        query = """
-        SELECT p.nombre_completo, a.hora_entrada, a.hora_salida, ea.estado
-        FROM practicante p
-        LEFT JOIN asistencia a ON p.id = a.practicante_id AND a.fecha = %s
-        LEFT JOIN estado_asistencia ea ON a.estado_id = ea.id
-        ORDER BY p.nombre_completo ASC
-        """
-        resultados = await db.fetch_all(query, (fecha_actual,))
-        embed = Embed(title=f"📊 Reporte de Asistencia - {fecha_actual}", color=Color.blue())
-        for res in resultados:
-            entrada = res['hora_entrada'] or "---"
-            salida = res['hora_salida'] or "---"
-            estado = res['estado'] or "⚠️ Pendiente"
-            embed.add_field(name=res['nombre_completo'], value=f"E: {entrada} | S: {salida}\nEst: {estado}", inline=False)
-        await interaction.followup.send(embed=embed, ephemeral=True)
-
-    @app_commands.command(name='eliminar_practicante', description="Elimina a un practicante")
-    async def eliminar_practicante(self, interaction: discord.Interaction, id_discord: str):
-        await interaction.response.defer(ephemeral=True)
-        query = "SELECT nombre_completo FROM practicante WHERE id_discord = %s"
-        p = await db.fetch_one(query, (id_discord,))
-        if not p: return await interaction.followup.send("❌ No encontrado.", ephemeral=True)
-        
-        embed = Embed(title="⚠️ Confirmación", description=f"¿Eliminar a **{p['nombre_completo']}**?", color=Color.red())
-        view = ConfirmacionEliminar(interaction, id_discord, p['nombre_completo'])
-        await interaction.followup.send(embed=embed, view=view, ephemeral=True)
-
-    @app_commands.command(name='editar_asistencia', description="Edita o crea un registro de asistencia manualmente")
-    @app_commands.describe(
-        usuario="El practicante a editar",
-        fecha="Fecha en formato YYYY-MM-DD (ej. 2024-03-20)",
-        entrada="Hora de entrada HH:MM (ej. 08:00)",
-        salida="Hora de salida HH:MM (ej. 14:00)",
-        estado="Estado: Presente, Tardanza, Falta Injustificada, Falta Recuperada, Permiso"
-    )
-    async def editar_asistencia(
-        self, 
-        interaction: discord.Interaction, 
-        usuario: discord.User,
-        fecha: Optional[str] = None,
-        entrada: Optional[str] = None,
-        salida: Optional[str] = None,
-        estado: Optional[str] = None
-    ):
-        await interaction.response.defer(ephemeral=True)
-        
-        try:
-            # 1. Obtener ID del practicante
-            query_p = "SELECT id FROM practicante WHERE id_discord = %s"
-            p = await db.fetch_one(query_p, (usuario.id,))
-            if not p:
-                return await interaction.followup.send(f"❌ {usuario.mention} no está registrado.", ephemeral=True)
-            
-            p_id = p['id']
-            fecha_final = fecha if fecha else datetime.now(LIMA_TZ).strftime('%Y-%m-%d')
-            
-            # 2. Obtener estado_id si se proporcionó
-            estado_id = None
-            if estado:
-                estado_id = await obtener_estado_asistencia(estado)
-                if not estado_id:
-                    return await interaction.followup.send(f"❌ Estado '{estado}' no válido.", ephemeral=True)
-
-            # 3. Comprobar si ya existe el registro
-            query_check = "SELECT id FROM asistencia WHERE practicante_id = %s AND fecha = %s"
-            existente = await db.fetch_one(query_check, (p_id, fecha_final))
-
-            if existente:
-                # Actualizar (crear lista de campos a actualizar)
-                updates = []
-                params = []
-                if entrada: updates.append("hora_entrada = %s"); params.append(entrada)
-                if salida: updates.append("hora_salida = %s"); params.append(salida)
-                if estado_id: updates.append("estado_id = %s"); params.append(estado_id)
-                
-                if not updates:
-                    return await interaction.followup.send("⚠️ No se proporcionaron campos para actualizar.", ephemeral=True)
-                
-                query_upd = f"UPDATE asistencia SET {', '.join(updates)} WHERE id = %s"
-                params.append(existente['id'])
-                await db.execute_query(query_upd, tuple(params))
-                await interaction.followup.send(f"✅ Asistencia de {usuario.mention} para el {fecha_final} actualizada.", ephemeral=True)
-            else:
-                # Crear nuevo registro (requiere estado o asumimos Presente)
-                if not estado_id: estado_id = await obtener_estado_asistencia('Presente')
-                query_ins = "INSERT INTO asistencia (practicante_id, fecha, hora_entrada, hora_salida, estado_id) VALUES (%s, %s, %s, %s, %s)"
-                await db.execute_query(query_ins, (p_id, fecha_final, entrada, salida, estado_id))
-                await interaction.followup.send(f"✅ Nuevo registro creado para {usuario.mention} el {fecha_final}.", ephemeral=True)
-
-        except Exception as e:
-            await interaction.followup.send(f"❌ Error al editar asistencia: {e}", ephemeral=True)
-
-    @app_commands.command(name='resumen_general', description="Muestra el resumen de horas de todos los practicantes")
-    async def resumen_general(self, interaction: discord.Interaction):
-        await interaction.response.defer(ephemeral=True)
-        query = "SELECT * FROM resumen_practicantes ORDER BY nombre_completo ASC"
-        res = await db.fetch_all(query)
-        
-        if not res: return await interaction.followup.send("No hay datos.", ephemeral=True)
-        
-        embed = Embed(title="📋 Resumen General de Horas", color=Color.green())
-        for r in res:
-            prev = format_timedelta_total(r['horas_base'])
-            bot = format_timedelta_total(r['horas_bot'])
-            total = format_timedelta_total(r['total_acumulado'])
-            embed.add_field(
-                name=r['nombre_completo'], 
-                value=f"Base: `{prev}` | Bot: `{bot}`\n**Total: `{total}`**", 
-                inline=False
-            )
-            
-        await interaction.followup.send(embed=embed, ephemeral=True)
-
-    @app_commands.command(name='sincronizar', description="Fuerza la sincronización con Google Sheets")
-    async def sincronizar(self, interaction: discord.Interaction):
-        await interaction.response.defer(ephemeral=True)
-        from google_sheets import sync_practicantes_to_db, export_report_to_sheet
-        try:
-            await sync_practicantes_to_db()
-            await export_report_to_sheet()
-            await interaction.followup.send("✅ Sincronización con Google Sheets completada.", ephemeral=True)
-        except Exception as e:
-            await interaction.followup.send(f"❌ Error: {e}", ephemeral=True)
-
-    @app_commands.command(name='agregar_equipo', description="Agrega a un miembro al equipo de desarrollo")
-    async def agregar_equipo(self, interaction: discord.Interaction, usuario: discord.User, rol: str = "Developer"):
-        await interaction.response.defer(ephemeral=True)
-        query = "INSERT INTO bot_admins (discord_id, nombre_referencia, rol) VALUES (%s, %s, %s) ON DUPLICATE KEY UPDATE rol = %s"
-        await db.execute_query(query, (usuario.id, usuario.name, rol, rol))
-        await interaction.followup.send(f"✅ **{usuario.name}** agregado como **{rol}**.", ephemeral=True)
-
-    @app_commands.command(name='equipo', description="Muestra el equipo de desarrollo")
-    async def ver_equipo(self, interaction: discord.Interaction):
-        await interaction.response.defer(ephemeral=True) # Evita el error 10062
-        # Ordenamos: Wilber primero, Renso segundo, los demás después
-        query = """
-        SELECT * FROM bot_admins 
-        ORDER BY 
-            CASE 
-                WHEN discord_id = 824692049084678144 THEN 1 -- Wilber
-                WHEN discord_id = 615932763161362636 THEN 2 -- Renso
-                ELSE 3 
-            END ASC, 
-            rol DESC
-        """
-        admins = await db.fetch_all(query)
-        texto = "\n".join([f"• <@{a['discord_id']}> - **{a['rol']}**" for a in admins])
-        embed = Embed(title="👥 Equipo de Desarrollo", description=texto, color=Color.gold())
-        await interaction.followup.send(embed=embed, ephemeral=True)
-
-    async def admin_autocomplete(self, interaction: discord.Interaction, current: str):
-        """Autocompletado para mostrar solo administradores actuales"""
-        query = "SELECT nombre_referencia, discord_id FROM bot_admins WHERE nombre_referencia LIKE %s"
-        admins = await db.fetch_all(query, (f"%{current}%",))
-        return [
-            app_commands.Choice(name=a['nombre_referencia'], value=str(a['discord_id']))
-            for a in admins 
-            if a['discord_id'] not in [824692049084678144, 615932763161362636] # No permitimos elegir a los fundadores
-        ]
-
-    @app_commands.command(name='eliminar_equipo', description="Quita a un miembro del equipo de desarrollo")
-    @app_commands.autocomplete(usuario_id=admin_autocomplete)
-    async def eliminar_equipo(self, interaction: discord.Interaction, usuario_id: str):
-        await interaction.response.defer(ephemeral=True)
-        
-        id_int = int(usuario_id)
-        # Protegemos a Wilber y a Renso (aunque el autocomplete ya los filtra, por seguridad extra)
-        if id_int in [824692049084678144, 615932763161362636]:
-            return await interaction.followup.send("❌ No puedes eliminar a los fundadores del equipo.", ephemeral=True)
-            
-        query = "DELETE FROM bot_admins WHERE discord_id = %s"
-        await db.execute_query(query, (id_int,))
-        await interaction.followup.send(f"✅ Usuario eliminado del equipo.", ephemeral=True)
-
-    @app_commands.command(name='registros', description="Ver resumen rápido de registros del día")
+    # ──────────────────────────────────────────────
+    # /admin registros — Dashboard de 14 métricas
+    # ──────────────────────────────────────────────
+    @app_commands.command(name='registros', description="Ver dashboard de asistencia del día")
     async def registros(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
-        fecha_actual = datetime.now(LIMA_TZ).date()
+        if not await self._verificar_admin(interaction):
+            return
 
-        # 1. Total de practicantes registrados
-        total_res = await db.fetch_one("SELECT COUNT(*) as total FROM practicante")
-        total_practicantes = total_res['total'] if total_res else 0
+        ahora = datetime.now(LIMA_TZ)
+        fecha = ahora.date()
+        dia_semana = ahora.weekday()  # 0=lunes
+        col_clase = DIAS_CLASE.get(dia_semana, 'clase_lunes')
+        dia_nombre = DIAS_SEMANA.get(dia_semana, 'Hoy')
 
-        # 2. Presentes hasta las 8:10 a.m. (estado_id = 1 = Presente)
-        query_presentes = """
-        SELECT COUNT(*) as total FROM asistencia
-        WHERE fecha = %s AND estado_id = 1
-        """
-        presentes_res = await db.fetch_one(query_presentes, (fecha_actual,))
-        presentes = presentes_res['total'] if presentes_res else 0
+        # 1. Total inicial (activos + retirados)
+        q1 = await db.fetch_one("SELECT COUNT(*) AS total FROM practicante")
+        total_inicial = q1['total']
 
-        # 3. Tardanzas (estado_id = 2 = Tardanza, hora_entrada <= 09:00)
-        query_tardanzas = """
-        SELECT COUNT(*) as total FROM asistencia
-        WHERE fecha = %s AND estado_id = 2 AND hora_entrada <= '09:00:00'
-        """
-        tardanzas_res = await db.fetch_one(query_tardanzas, (fecha_actual,))
-        tardanzas = tardanzas_res['total'] if tardanzas_res else 0
+        # 2. Retirados
+        q2 = await db.fetch_one("SELECT COUNT(*) AS total FROM practicante WHERE estado = 'retirado'")
+        total_retirados = q2['total']
 
-        # 4. Fuera del límite (hora_entrada > 09:00)
-        query_fuera_limite = """
-        SELECT COUNT(*) as total FROM asistencia
-        WHERE fecha = %s AND hora_entrada > '09:00:00'
-        """
-        fuera_limite_res = await db.fetch_one(query_fuera_limite, (fecha_actual,))
-        fuera_limite = fuera_limite_res['total'] if fuera_limite_res else 0
+        # 3. Actuales (activos)
+        q3 = await db.fetch_one("SELECT COUNT(*) AS total FROM practicante WHERE estado = 'activo'")
+        total_activos = q3['total']
 
-        # 5. Faltas: practicantes sin registro de entrada hoy (solo después de las 9:00)
-        hora_actual = datetime.now(LIMA_TZ).time()
-        if hora_actual >= time(9, 0):
-            query_faltas = """
-            SELECT COUNT(*) as total FROM practicante p
-            WHERE NOT EXISTS (
-                SELECT 1 FROM asistencia a WHERE a.practicante_id = p.id AND a.fecha = %s
-            )
-            """
-            faltas_res = await db.fetch_one(query_faltas, (fecha_actual,))
-            faltas = faltas_res['total'] if faltas_res else 0
-        else:
-            faltas = None  # Aún no se puede determinar
+        # 4. Ausentes por clases hoy
+        q4 = await db.fetch_one(f"SELECT COUNT(*) AS total FROM practicante WHERE estado = 'activo' AND {col_clase} = TRUE")
+        ausentes_clases = q4['total']
 
-        # Construir Embed
+        # 5. Justificaciones hoy
+        q5 = await db.fetch_one(
+            "SELECT COUNT(*) AS total FROM reporte WHERE tipo = 'justificacion' AND fecha = $1", fecha
+        )
+        justificaciones = q5['total']
+
+        # 6. Deben asistir hoy
+        deben_asistir = total_activos - ausentes_clases - justificaciones
+
+        # 7. Presentes (temprano)
+        q7 = await db.fetch_one(
+            "SELECT COUNT(*) AS total FROM asistencia WHERE fecha = $1 AND estado = 'temprano'", fecha
+        )
+        presentes = q7['total']
+
+        # 8. Faltan llegar
+        q_registrados = await db.fetch_one(
+            "SELECT COUNT(*) AS total FROM asistencia WHERE fecha = $1 AND estado != 'falto'", fecha
+        )
+        registrados = q_registrados['total']
+        faltan = max(0, deben_asistir - registrados)
+
+        # 9. Tardanzas
+        q9 = await db.fetch_one(
+            "SELECT COUNT(*) AS total FROM asistencia WHERE fecha = $1 AND estado = 'tarde'", fecha
+        )
+        tardanzas = q9['total']
+
+        # 10. Sobre hora
+        q10 = await db.fetch_one(
+            "SELECT COUNT(*) AS total FROM asistencia WHERE fecha = $1 AND estado = 'sobreHora'", fecha
+        )
+        sobre_hora = q10['total']
+
+        # 11. Faltas
+        q11 = await db.fetch_one(f"""
+        SELECT COUNT(*) AS total FROM practicante p
+        WHERE p.estado = 'activo'
+          AND p.{col_clase} = FALSE
+          AND NOT EXISTS (SELECT 1 FROM asistencia a WHERE a.practicante_id = p.id AND a.fecha = $1)
+          AND NOT EXISTS (SELECT 1 FROM reporte r WHERE r.practicante_id = p.id AND r.fecha = $1 AND r.tipo = 'justificacion')
+        """, fecha)
+        faltas = q11['total']
+
+        # 12. Acumulación de tardanzas total
+        q12 = await db.fetch_one(
+            "SELECT COUNT(*) AS total FROM asistencia WHERE estado IN ('tarde', 'sobreHora')"
+        )
+        acum_tardanzas = q12['total']
+
+        # 13. Retirados hoy
+        q13 = await db.fetch_one(
+            "SELECT COUNT(*) AS total FROM practicante WHERE fecha_retiro = $1", fecha
+        )
+        retirados_hoy = q13['total']
+
+        # Construir embed
         embed = Embed(
-            title=f"📋 Registros del Día - {fecha_actual.strftime('%d/%m/%Y')}",
-            color=Color.dark_teal()
+            title=f"📊 Dashboard de Asistencia — {dia_nombre} {fecha.strftime('%d/%m/%Y')}",
+            color=Color.blue()
         )
+
         embed.add_field(
-            name="👥 Cantidad total de practicantes",
-            value=f"**{total_practicantes}**",
-            inline=False
+            name="👥 Practicantes",
+            value=(
+                f"Total inicial: **{total_inicial}**\n"
+                f"Retirados: **{total_retirados}**\n"
+                f"Actuales: **{total_activos}**"
+            ),
+            inline=True
         )
+
         embed.add_field(
-            name="✅ Presentes hasta las 8:10 a.m.",
+            name="📅 Asistencia hoy",
+            value=(
+                f"Ausentes por clases: **{ausentes_clases}**\n"
+                f"Justificaciones: **{justificaciones}**\n"
+                f"Deben asistir: **{deben_asistir}**"
+            ),
+            inline=True
+        )
+
+        embed.add_field(name="\u200b", value="\u200b", inline=False)  # Separator
+
+        embed.add_field(
+            name="✅ Presentes a tiempo",
             value=f"**{presentes}**",
-            inline=False
+            inline=True
         )
         embed.add_field(
-            name="🟠 Tardanzas (8:10 - 9:00 a.m.)",
+            name="⏳ Faltan llegar",
+            value=f"**{faltan}**",
+            inline=True
+        )
+        embed.add_field(
+            name="⚠️ Tardanzas (8:11-9:00)",
             value=f"**{tardanzas}**",
-            inline=False
+            inline=True
         )
+
         embed.add_field(
-            name="🔴 Llegaron fuera del límite 9:00",
-            value=f"**{fuera_limite}**",
-            inline=False
+            name="🔴 Sobre hora (>9:00)",
+            value=f"**{sobre_hora}**",
+            inline=True
         )
-        faltas_texto = f"**{faltas}**" if faltas is not None else "⏳ *Aún no determinable (antes de 9:00 a.m.)*"
         embed.add_field(
             name="❌ Faltas",
-            value=faltas_texto,
-            inline=False
+            value=f"**{faltas}**",
+            inline=True
         )
-        embed.set_footer(text="Reporte generado automáticamente por el Bot de Asistencia")
+        embed.add_field(
+            name="📈 Tardanzas acumuladas",
+            value=f"**{acum_tardanzas}**",
+            inline=True
+        )
 
+        if retirados_hoy > 0:
+            embed.add_field(
+                name="🚪 Retirados hoy",
+                value=f"**{retirados_hoy}**",
+                inline=True
+            )
+
+        embed.set_footer(text=f"Hora del reporte: {ahora.strftime('%H:%M:%S')}")
+
+        await interaction.followup.send(embed=embed, view=DashboardListasView(fecha), ephemeral=True)
+
+    # ──────────────────────────────────────────────
+    # /admin retirar — Soft-delete de practicante
+    # ──────────────────────────────────────────────
+    @app_commands.command(name='retirar', description="Retirar a un practicante (soft-delete)")
+    @app_commands.describe(
+        usuario="Practicante a retirar",
+        motivo="Motivo del retiro"
+    )
+    async def retirar(self, interaction: discord.Interaction, usuario: discord.Member, motivo: str):
+        await interaction.response.defer(ephemeral=True)
+        if not await self._verificar_admin(interaction):
+            return
+
+        prac = await db.fetch_one(
+            "SELECT id, nombre_completo, estado FROM practicante WHERE id_discord = $1",
+            usuario.id
+        )
+        if not prac:
+            await interaction.followup.send("❌ Este usuario no está registrado.", ephemeral=True)
+            return
+        if prac['estado'] == 'retirado':
+            await interaction.followup.send("⚠️ Este practicante ya está retirado.", ephemeral=True)
+            return
+
+        view = ConfirmacionRetirar(prac['id'], prac['nombre_completo'], motivo, interaction.user.id)
+        await interaction.followup.send(
+            f"⚠️ ¿Confirmar retiro de **{prac['nombre_completo']}**?\nMotivo: {motivo}",
+            view=view,
+            ephemeral=True
+        )
+
+    # ──────────────────────────────────────────────
+    # /admin listar_retirados
+    # ──────────────────────────────────────────────
+    @app_commands.command(name='listar_retirados', description="Ver lista de practicantes retirados")
+    async def listar_retirados(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        if not await self._verificar_admin(interaction):
+            return
+
+        rows = await db.fetch_all(
+            "SELECT nombre_completo, fecha_retiro, motivo_retiro FROM practicante WHERE estado = 'retirado' ORDER BY fecha_retiro DESC"
+        )
+        if not rows:
+            await interaction.followup.send("📭 No hay practicantes retirados.", ephemeral=True)
+            return
+
+        lineas = []
+        for i, r in enumerate(rows, 1):
+            fecha = r['fecha_retiro'].strftime('%d/%m') if r['fecha_retiro'] else 'N/A'
+            motivo = r['motivo_retiro'] or 'Sin motivo'
+            lineas.append(f"`{i}.` {r['nombre_completo']} — {fecha} — {motivo}")
+
+        embed = Embed(title="📋 Practicantes Retirados", description="\n".join(lineas[:25]), color=Color.red())
+        embed.set_footer(text=f"Total: {len(rows)}")
         await interaction.followup.send(embed=embed, ephemeral=True)
 
-    @app_commands.command(name='registro_horario', description="Lista de practicantes separados por hora de llegada")
-    async def registro_horario(self, interaction: discord.Interaction):
+    # ──────────────────────────────────────────────
+    # /admin reportar — Crear un reporte
+    # ──────────────────────────────────────────────
+    @app_commands.command(name='reportar', description="Crear un reporte para un practicante")
+    @app_commands.describe(
+        usuario="Practicante a reportar",
+        tipo="Tipo de reporte",
+        descripcion="Descripción del reporte"
+    )
+    @app_commands.choices(tipo=[
+        app_commands.Choice(name="Llamada de atención", value="llamada_atencion"),
+        app_commands.Choice(name="Justificación", value="justificacion"),
+        app_commands.Choice(name="Baneo", value="baneo"),
+        app_commands.Choice(name="Falta", value="falta"),
+    ])
+    async def reportar(self, interaction: discord.Interaction, usuario: discord.Member, tipo: str, descripcion: str):
         await interaction.response.defer(ephemeral=True)
-        fecha_actual = datetime.now(LIMA_TZ).date()
+        if not await self._verificar_admin(interaction):
+            return
 
-        # 1. A tiempo (estado_id = 1 = Presente, antes de 8:10)
-        query_a_tiempo = """
-        SELECT p.nombre_completo, a.hora_entrada
-        FROM asistencia a JOIN practicante p ON a.practicante_id = p.id
-        WHERE a.fecha = %s AND a.estado_id = 1
-        ORDER BY a.hora_entrada
-        """
-        a_tiempo = await db.fetch_all(query_a_tiempo, (fecha_actual,))
-
-        # 2. Tardanza (estado_id = 2, hora_entrada <= 09:00)
-        query_tardanza = """
-        SELECT p.nombre_completo, a.hora_entrada
-        FROM asistencia a JOIN practicante p ON a.practicante_id = p.id
-        WHERE a.fecha = %s AND a.estado_id = 2 AND a.hora_entrada <= '09:00:00'
-        ORDER BY a.hora_entrada
-        """
-        tardanza = await db.fetch_all(query_tardanza, (fecha_actual,))
-
-        # 3. Fuera del límite (hora_entrada > 09:00)
-        query_fuera = """
-        SELECT p.nombre_completo, a.hora_entrada
-        FROM asistencia a JOIN practicante p ON a.practicante_id = p.id
-        WHERE a.fecha = %s AND a.hora_entrada > '09:00:00'
-        ORDER BY a.hora_entrada
-        """
-        fuera = await db.fetch_all(query_fuera, (fecha_actual,))
-
-        # Helper para formatear hora (timedelta -> HH:MM)
-        def format_hora(td):
-            if td is None:
-                return "---"
-            total_seconds = int(td.total_seconds()) if hasattr(td, 'total_seconds') else 0
-            hours = total_seconds // 3600
-            minutes = (total_seconds % 3600) // 60
-            return f"{hours:02d}:{minutes:02d}"
-
-        # Helper para agregar lista paginada a un embed (máx 1024 chars por field)
-        def agregar_lista_paginada(embed, registros):
-            if not registros:
-                embed.add_field(name="\u200b", value="*Ninguno*", inline=False)
-                return
-            chunk = ""
-            for r in registros:
-                linea = f"• **{r['nombre_completo']}** — {format_hora(r['hora_entrada'])}\n"
-                if len(chunk) + len(linea) > 1024:
-                    embed.add_field(name="\u200b", value=chunk.rstrip(), inline=False)
-                    chunk = ""
-                chunk += linea
-            if chunk:
-                embed.add_field(name="\u200b", value=chunk.rstrip(), inline=False)
-
-        # Embed 1 - A tiempo (Verde)
-        embed_verde = Embed(
-            title=f"✅ Llegaron a tiempo - {fecha_actual.strftime('%d/%m/%Y')}",
-            description=f"Practicantes que llegaron antes de las 8:10 a.m. ({len(a_tiempo)})",
-            color=Color.green()
+        prac = await db.fetch_one(
+            "SELECT id, nombre_completo, baneos FROM practicante WHERE id_discord = $1",
+            usuario.id
         )
-        agregar_lista_paginada(embed_verde, a_tiempo)
+        if not prac:
+            await interaction.followup.send("❌ Usuario no registrado.", ephemeral=True)
+            return
 
-        # Embed 2 - Tardanza (Naranja)
-        embed_naranja = Embed(
-            title=f"🟠 Llegaron con tardanza - {fecha_actual.strftime('%d/%m/%Y')}",
-            description=f"Practicantes que llegaron entre 8:10 y 9:00 a.m. ({len(tardanza)})",
+        # Crear reporte
+        await db.execute_query(
+            "INSERT INTO reporte (practicante_id, descripcion, tipo, creado_por) VALUES ($1, $2, $3, $4)",
+            prac['id'], descripcion, tipo, interaction.user.id
+        )
+
+        msg = f"✅ Reporte **{tipo}** creado para **{prac['nombre_completo']}**."
+
+        # Si es baneo, incrementar contador
+        if tipo == 'baneo':
+            nuevos_baneos = prac['baneos'] + 1
+            await db.execute_query(
+                "UPDATE practicante SET baneos = $1 WHERE id = $2",
+                nuevos_baneos, prac['id']
+            )
+            msg += f"\n⚠️ Baneos acumulados: **{nuevos_baneos}/{MAX_BANEOS_RETIRO}**"
+
+            if nuevos_baneos >= MAX_BANEOS_RETIRO:
+                await db.execute_query(
+                    "UPDATE practicante SET estado = 'retirado', fecha_retiro = CURRENT_DATE, motivo_retiro = 'Acumulación de baneos' WHERE id = $1",
+                    prac['id']
+                )
+                await db.execute_query(
+                    "INSERT INTO reporte (practicante_id, descripcion, tipo, creado_por) VALUES ($1, $2, 'retiro', $3)",
+                    prac['id'], f"Retiro automático por acumulación de {MAX_BANEOS_RETIRO} baneos", interaction.user.id
+                )
+                msg += f"\n🚪 **{prac['nombre_completo']}** ha sido **retirado automáticamente** por acumulación de {MAX_BANEOS_RETIRO} baneos."
+
+        await interaction.followup.send(msg, ephemeral=True)
+
+    # ──────────────────────────────────────────────
+    # /admin reportes — Ver reportes de un practicante
+    # ──────────────────────────────────────────────
+    @app_commands.command(name='reportes', description="Ver reportes de un practicante")
+    @app_commands.describe(usuario="Practicante")
+    async def reportes(self, interaction: discord.Interaction, usuario: discord.Member):
+        await interaction.response.defer(ephemeral=True)
+        if not await self._verificar_admin(interaction):
+            return
+
+        prac = await db.fetch_one(
+            "SELECT id, nombre_completo FROM practicante WHERE id_discord = $1",
+            usuario.id
+        )
+        if not prac:
+            await interaction.followup.send("❌ Usuario no registrado.", ephemeral=True)
+            return
+
+        rows = await db.fetch_all(
+            "SELECT tipo, descripcion, fecha, revisado FROM reporte WHERE practicante_id = $1 ORDER BY fecha DESC LIMIT 15",
+            prac['id']
+        )
+        if not rows:
+            await interaction.followup.send(f"📭 {prac['nombre_completo']} no tiene reportes.", ephemeral=True)
+            return
+
+        lineas = []
+        for r in rows:
+            check = "✅" if r['revisado'] else "⬜"
+            fecha = r['fecha'].strftime('%d/%m')
+            lineas.append(f"{check} `{r['tipo']}` — {fecha} — {r['descripcion'][:60]}")
+
+        embed = Embed(
+            title=f"📋 Reportes de {prac['nombre_completo']}",
+            description="\n".join(lineas),
             color=Color.orange()
         )
-        agregar_lista_paginada(embed_naranja, tardanza)
+        embed.set_footer(text=f"Total: {len(rows)} (mostrando últimos 15)")
+        await interaction.followup.send(embed=embed, ephemeral=True)
 
-        # Embed 3 - Fuera del límite (Rojo)
-        embed_rojo = Embed(
-            title=f"🔴 Llegaron fuera del límite 9:00 - {fecha_actual.strftime('%d/%m/%Y')}",
-            description=f"Practicantes que llegaron después de las 9:00 a.m. ({len(fuera)})",
-            color=Color.red()
+    # ──────────────────────────────────────────────
+    # /admin ausencia — Marcar días de clase
+    # ──────────────────────────────────────────────
+    @app_commands.command(name='ausencia', description="Configurar días de clase de un practicante")
+    @app_commands.describe(
+        usuario="Practicante",
+        dia="Día de la semana con clases",
+        activar="True para marcar clase, False para quitar"
+    )
+    @app_commands.choices(dia=[
+        app_commands.Choice(name="Lunes", value="clase_lunes"),
+        app_commands.Choice(name="Martes", value="clase_martes"),
+        app_commands.Choice(name="Miércoles", value="clase_miercoles"),
+        app_commands.Choice(name="Jueves", value="clase_jueves"),
+        app_commands.Choice(name="Viernes", value="clase_viernes"),
+        app_commands.Choice(name="Sábado", value="clase_sabado"),
+    ])
+    async def ausencia(self, interaction: discord.Interaction, usuario: discord.Member, dia: str, activar: bool = True):
+        await interaction.response.defer(ephemeral=True)
+        if not await self._verificar_admin(interaction):
+            return
+
+        prac = await db.fetch_one(
+            "SELECT id, nombre_completo FROM practicante WHERE id_discord = $1",
+            usuario.id
         )
-        agregar_lista_paginada(embed_rojo, fuera)
+        if not prac:
+            await interaction.followup.send("❌ Usuario no registrado.", ephemeral=True)
+            return
 
-        await interaction.followup.send(embeds=[embed_verde, embed_naranja, embed_rojo], ephemeral=True)
+        # Actualizar el día de clase (columna dinámica — nombre validado por choices)
+        await db.execute_query(
+            f"UPDATE practicante SET {dia} = $1 WHERE id = $2",
+            activar, prac['id']
+        )
+
+        dia_nombre = dia.replace('clase_', '').capitalize()
+        estado = "activado" if activar else "desactivado"
+        await interaction.followup.send(
+            f"✅ **{prac['nombre_completo']}** — {dia_nombre}: clase **{estado}**.",
+            ephemeral=True
+        )
+
+    # ──────────────────────────────────────────────
+    # /admin justificar — Justificar falta
+    # ──────────────────────────────────────────────
+    @app_commands.command(name='justificar', description="Justificar la inasistencia de un practicante")
+    @app_commands.describe(
+        usuario="Practicante a justificar",
+        motivo="Motivo de la justificación"
+    )
+    async def justificar(self, interaction: discord.Interaction, usuario: discord.Member, motivo: str):
+        await interaction.response.defer(ephemeral=True)
+        if not await self._verificar_admin(interaction):
+            return
+
+        prac = await db.fetch_one(
+            "SELECT id, nombre_completo FROM practicante WHERE id_discord = $1",
+            usuario.id
+        )
+        if not prac:
+            await interaction.followup.send("❌ Usuario no registrado.", ephemeral=True)
+            return
+
+        fecha = datetime.now(LIMA_TZ).date()
+
+        # Crear reporte de justificación
+        await db.execute_query(
+            "INSERT INTO reporte (practicante_id, descripcion, tipo, fecha, creado_por) VALUES ($1, $2, 'justificacion', $3, $4)",
+            prac['id'], motivo, fecha, interaction.user.id
+        )
+
+        await interaction.followup.send(
+            f"✅ Justificación registrada para **{prac['nombre_completo']}** — {motivo}",
+            ephemeral=True
+        )
+
+    # ──────────────────────────────────────────────
+    # /admin eliminar_practicante — Soft-delete (alias)
+    # ──────────────────────────────────────────────
+    @app_commands.command(name='eliminar_practicante', description="Eliminar un practicante (soft-delete)")
+    @app_commands.describe(usuario="Practicante a eliminar")
+    async def eliminar_practicante(self, interaction: discord.Interaction, usuario: discord.Member):
+        await interaction.response.defer(ephemeral=True)
+        if not await self._verificar_admin(interaction):
+            return
+
+        prac = await db.fetch_one(
+            "SELECT id, nombre_completo FROM practicante WHERE id_discord = $1 AND estado = 'activo'",
+            usuario.id
+        )
+        if not prac:
+            await interaction.followup.send("❌ Este usuario no está registrado o ya fue retirado.", ephemeral=True)
+            return
+
+        view = ConfirmacionRetirar(prac['id'], prac['nombre_completo'], "Eliminado por admin", interaction.user.id)
+        await interaction.followup.send(
+            f"⚠️ ¿Confirmar retiro de **{prac['nombre_completo']}**?",
+            view=view,
+            ephemeral=True
+        )
+
+    # ──────────────────────────────────────────────
+    # /admin reporte_hoy — Resumen para enviar a canal
+    # ──────────────────────────────────────────────
+    @app_commands.command(name='reporte_hoy', description="Generar reporte del día (público)")
+    async def reporte_hoy(self, interaction: discord.Interaction):
+        await interaction.response.defer()
+        if not await es_admin_bot(interaction.user.id):
+            await interaction.followup.send("❌ No tienes permisos.", ephemeral=True)
+            return
+
+        fecha = datetime.now(LIMA_TZ).date()
+
+        rows = await db.fetch_all("""
+        SELECT p.nombre_completo, a.estado, a.hora_entrada, a.hora_salida
+        FROM asistencia a
+        JOIN practicante p ON a.practicante_id = p.id
+        WHERE a.fecha = $1
+        ORDER BY a.hora_entrada
+        """, fecha)
+
+        if not rows:
+            await interaction.followup.send("📭 No hay registros de asistencia para hoy.")
+            return
+
+        lineas = []
+        for r in rows:
+            he = format_timedelta(r['hora_entrada']) if r['hora_entrada'] else "—"
+            hs = format_timedelta(r['hora_salida']) if r['hora_salida'] else "—"
+            emoji = {'temprano': '✅', 'tarde': '⚠️', 'sobreHora': '🔴', 'falto': '❌', 'clases': '📚'}.get(r['estado'], '❓')
+            lineas.append(f"{emoji} {r['nombre_completo']} — {he} → {hs}")
+
+        embed = Embed(
+            title=f"📊 Reporte de Asistencia — {fecha.strftime('%d/%m/%Y')}",
+            description="\n".join(lineas[:25]),
+            color=Color.blue()
+        )
+        embed.set_footer(text=f"Total registros: {len(rows)}")
+        await interaction.followup.send(embed=embed)
+
 
 async def setup(bot):
     await bot.add_cog(Admin(bot))

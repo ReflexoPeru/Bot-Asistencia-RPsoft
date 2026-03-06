@@ -7,38 +7,52 @@ from datetime import time
 from typing import Set
 
 # Horarios de entrada
-HORARIO_ENTRADA_INICIO = time(7, 50)      # 7:50 AM
-HORARIO_ENTRADA_FIN = time(14, 0)        # 2:00 PM
-HORARIO_ENTRADA_TOLERANCIA = time(8, 10, 59) # 8:10:59 AM
-HORA_LIMITE_TARDANZA = time(8, 10, 59)   # 8:10:59 AM
-HORARIO_SALIDA_MINIMA = time(14, 30)     # 2:30 PM
+HORARIO_ENTRADA_INICIO = time(7, 50)         # 7:50 AM
+HORARIO_ENTRADA_FIN = time(14, 0)            # 2:00 PM (última hora para registrar entrada)
+HORARIO_ENTRADA_TOLERANCIA = time(8, 10, 59) # 8:10:59 AM — límite para 'temprano'
+HORA_LIMITE_TARDANZA = time(9, 0, 0)         # 9:00:00 AM — después de esto es 'sobreHora'
+
+# Horarios de salida asistencia
+HORA_SALIDA_OFICIAL = time(14, 0)            # 2:00 PM — hora oficial de salida
+HORA_GRACIA_SALIDA = time(14, 15)            # 2:15 PM — gracia para marcar salida
+HORARIO_SALIDA_MINIMA = time(12, 0)          # 12:00 PM — mínimo para marcar salida temprana
 
 # Horarios de recuperación
-HORA_INICIO_RECUPERACION = time(14, 50)     # 2:50 PM
-HORA_FIN_RECUPERACION = time(20, 0)         # 8:00 PM
-MARGEN_TOLERANCIA_MINUTOS = 20
-HORA_CIERRE_REAL = time(20, 20)             # 8:20 PM (FIN + MARGEN)
-MAX_ADVERTENCIAS_CONSECUTIVAS = 3
-HORAS_SEMANALES_REQUERIDAS = 36
+HORA_INICIO_RECUPERACION = time(14, 50)      # 2:50 PM
+HORA_FIN_RECUPERACION = time(20, 0)          # 8:00 PM
+HORA_CIERRE_REAL = time(20, 0)               # Hora límite real (sin gracia)
+HORA_GRACIA_RECUPERACION = time(20, 20)      # 8:20 PM — gracia para marcar salida recup
 
-# Días de la semana (0=Lunes, 6=Domingo)
-# Solo permitir lunes a viernes (0-4)
-DIAS_SEMANA_PERMITIDOS: Set[int] = {0, 1, 2, 3, 4}
+# Horas semanales requeridas
+HORAS_SEMANALES_REQUERIDAS = 30
 
-# Límites de historial
-DIAS_HISTORIAL_MIN = 1
-DIAS_HISTORIAL_MAX = 15
+# Advertencias de recuperación → ahora se manejan por reportes (tipo afk_salida)
+# MAX_ADVERTENCIAS_CONSECUTIVAS eliminada — se cuenta por reportes de tipo afk_salida
 
-DIAS_HISTORIAL_RECUPERACION_MIN = 1
-DIAS_HISTORIAL_RECUPERACION_MAX = 30
+# Baneos para retiro automático
+MAX_BANEOS_RETIRO = 3  # 3 baneos = retirado automáticamente
 
-# Límites de caracteres
-MAX_LENGTH_MOTIVO = 255
-MAX_LENGTH_NOMBRE = 100
+# Estados de asistencia
+ESTADOS_ASISTENCIA = ('temprano', 'tarde', 'sobreHora', 'falto', 'clases')
 
-# Mensajes comunes
-MSG_CANAL_NO_PERMITIDO = "Este comando no está habilitado en este canal."
-MSG_NO_REGISTRADO = "no estás registrado como practicante."
-MSG_CONTACTO_ADMIN = "Si tienes dudas, contacta con el administrador."
+# Tipos de reporte
+TIPOS_REPORTE = (
+    'llamada_atencion',
+    'justificacion',
+    'baneo',
+    'tardanza',
+    'falta',
+    'afk_salida',
+    'retiro',
+)
 
-LINK_FORMULARIO_REGISTRO = "https://docs.google.com/forms/d/e/1FAIpQLSe3_6V9xPss_HZIw7quWUMkP5juOxocxIVOBz8gC_zpw5iIiw/viewform?usp=publish-editor"
+# Días de la semana
+DIAS_SEMANA = {
+    0: 'Lunes',
+    1: 'Martes',
+    2: 'Miércoles',
+    3: 'Jueves',
+    4: 'Viernes',
+    5: 'Sábado',
+    6: 'Domingo',
+}

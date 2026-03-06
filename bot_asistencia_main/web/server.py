@@ -14,7 +14,6 @@ async def health_check_handler(request):
 
 async def dashboard_handler(request):
     try:
-        # 1. Obtener fecha desde query param o usar la actual
         fecha_param = request.query.get('fecha', None)
         if fecha_param:
             try:
@@ -25,18 +24,23 @@ async def dashboard_handler(request):
             fecha_actual = datetime.datetime.now(LIMA_TZ).date()
 
         query = """
-        SELECT p.nombre_completo, a.hora_entrada, a.hora_salida, ea.estado
+        SELECT p.nombre_completo, a.hora_entrada, a.hora_salida, a.estado
         FROM practicante p
-        JOIN asistencia a ON p.id = a.practicante_id AND a.fecha = %s
-        JOIN estado_asistencia ea ON a.estado_id = ea.id
+        JOIN asistencia a ON p.id = a.practicante_id AND a.fecha = $1
         ORDER BY a.hora_entrada ASC
         """
+        resultados = await db.fetch_all(query, fecha_actual)
 
-        resultados = await db.fetch_all(query, (fecha_actual,))
-
-        # 2. Construir filas HTML
         rows_html = ""
         empty_state = ""
+
+        emoji_map = {
+            'temprano': 'badge-presente',
+            'tarde': 'badge-tardanza',
+            'sobreHora': 'badge-tardanza',
+            'falto': 'badge-falta',
+            'clases': 'badge-presente',
+        }
 
         if resultados:
             for row in resultados:
@@ -46,10 +50,7 @@ async def dashboard_handler(request):
                 salida = str(salida_raw) if salida_raw else ""
                 estado_bd = row['estado']
 
-                badge_class = "badge-presente"
-                if "Tardanza" in estado_bd: badge_class = "badge-tardanza"
-                elif "Falta" in estado_bd: badge_class = "badge-falta"
-
+                badge_class = emoji_map.get(estado_bd, 'badge-presente')
                 estado_badge = f'<span class="badge {badge_class}">{estado_bd}</span>'
 
                 if salida_raw:
@@ -69,20 +70,16 @@ async def dashboard_handler(request):
                 </tr>
                 """
         else:
-             empty_state = '<div class="empty-state"><h3>No hay registros para esta fecha</h3><p>Selecciona otro día en el calendario.</p></div>'
+            empty_state = '<div class="empty-state"><h3>No hay registros para esta fecha</h3><p>Selecciona otro día en el calendario.</p></div>'
 
-        # 3. Leer template
         try:
             current_dir = os.path.dirname(os.path.abspath(__file__))
-            # El template está en ../templates/ relativo a web/
             template_path = os.path.join(current_dir, '..', 'templates', 'index.html')
-
             with open(template_path, 'r', encoding='utf-8') as f:
                 html_content = f.read()
         except FileNotFoundError:
             return web.Response(text=f"<h1>Error: Template not found at {template_path}</h1>", status=500, content_type='text/html')
 
-        # 4. Reemplazar placeholders
         final_html = html_content.replace('<!-- DATA_ROWS__BE_REPLACED_BY_PYTHON -->', rows_html)
         final_html = final_html.replace('<!-- EMPTY_STATE_PLACEHOLDER -->', empty_state)
         final_html = final_html.replace('<!-- SELECTED_DATE_PLACEHOLDER -->', fecha_actual.strftime('%Y-%m-%d'))
@@ -102,18 +99,17 @@ async def api_asistencia_handler(request):
             try:
                 fecha = datetime.datetime.strptime(fecha_param, '%Y-%m-%d').date()
             except ValueError:
-                return web.json_response({"error": "Formato de fecha inválido. Usa YYYY-MM-DD"}, status=400)
+                return web.json_response({"error": "Formato inválido. Usa YYYY-MM-DD"}, status=400)
         else:
             fecha = datetime.datetime.now(LIMA_TZ).date()
 
         query = """
-        SELECT p.nombre_completo, a.hora_entrada, a.hora_salida, ea.estado
+        SELECT p.nombre_completo, a.hora_entrada, a.hora_salida, a.estado
         FROM practicante p
-        JOIN asistencia a ON p.id = a.practicante_id AND a.fecha = %s
-        JOIN estado_asistencia ea ON a.estado_id = ea.id
+        JOIN asistencia a ON p.id = a.practicante_id AND a.fecha = $1
         ORDER BY a.hora_entrada ASC
         """
-        resultados = await db.fetch_all(query, (fecha,))
+        resultados = await db.fetch_all(query, fecha)
 
         data = []
         for row in resultados:
@@ -147,11 +143,11 @@ async def api_fechas_handler(request):
 
         query = """
         SELECT DISTINCT fecha FROM asistencia
-        WHERE YEAR(fecha) = %s AND MONTH(fecha) = %s
+        WHERE EXTRACT(YEAR FROM fecha) = $1
+          AND EXTRACT(MONTH FROM fecha) = $2
         ORDER BY fecha
         """
-        resultados = await db.fetch_all(query, (year, month))
-
+        resultados = await db.fetch_all(query, year, month)
         fechas = [str(row['fecha']) for row in resultados]
 
         return web.json_response({"mes": f"{year}-{month:02d}", "fechas": fechas})
@@ -162,7 +158,7 @@ async def api_fechas_handler(request):
 
 
 async def start_web_server():
-    """Inicia el servidor web con health check, dashboard y APIs."""
+    """Inicia el servidor web."""
     app = web.Application()
     app.router.add_get("/health", health_check_handler)
     app.router.add_get("/", dashboard_handler)

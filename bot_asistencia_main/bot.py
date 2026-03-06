@@ -119,6 +119,7 @@ async def main():
         from cogs.tasks.scheduled_tasks import update_bot_status
         await update_bot_status(bot, "offline")
         await asyncio.sleep(1)
+        await db.close_db_pool()
         await bot.close()
 
 if __name__ == "__main__":

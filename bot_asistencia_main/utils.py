@@ -7,169 +7,193 @@ from zoneinfo import ZoneInfo
 # Zona horaria de Perú
 LIMA_TZ = ZoneInfo("America/Lima")
 
+# Mapeo de día de semana (0=lunes) a columna de clase
+DIAS_CLASE = {
+    0: 'clase_lunes',
+    1: 'clase_martes',
+    2: 'clase_miercoles',
+    3: 'clase_jueves',
+    4: 'clase_viernes',
+    5: 'clase_sabado',
+}
+
 async def es_admin_bot(discord_id: int) -> bool:
     """Verifica si un usuario es administrador/developer del bot en la BD"""
-    query = "SELECT 1 FROM bot_admins WHERE discord_id = %s"
-    resultado = await db.fetch_one(query, (discord_id,))
+    query = "SELECT 1 FROM bot_admin WHERE discord_id = $1"
+    resultado = await db.fetch_one(query, discord_id)
     return resultado is not None
 
 def format_timedelta(td):
     """Convierte un timedelta o time a string HH:MM:SS"""
     if td is None:
-        return "--:--"
+        return "N/A"
     if isinstance(td, datetime.time):
-        return td.strftime("%H:%M")
-    
-    # Si es timedelta (común en MySQL TIME)
-    total_seconds = int(td.total_seconds())
-    hours, remainder = divmod(total_seconds, 3600)
-    minutes, seconds = divmod(remainder, 60)
-    return f"{hours:02}:{minutes:02}"
-
-def format_timedelta_total(td_val):
-    """
-    Convierte un valor de tiempo de la BD (timedelta, string o None) 
-    en un formato de horas totales [HH]:MM:SS.
-    Ejemplo: timedelta de 47 horas -> '47:00:00'
-    """
-    if td_val is None:
-        return "00:00:00"
-    
-    if isinstance(td_val, datetime.timedelta):
-        total_seconds = int(td_val.total_seconds())
+        return td.strftime("%H:%M:%S")
+    if isinstance(td, datetime.timedelta):
+        total_seconds = int(td.total_seconds())
         hours = total_seconds // 3600
         minutes = (total_seconds % 3600) // 60
         seconds = total_seconds % 60
         return f"{hours:02}:{minutes:02}:{seconds:02}"
-    
-    # Si ya es un string, intentamos normalizarlo (por si viene con 'days')
-    td_str = str(td_val)
-    if 'day' in td_str:
-        # Reutilizamos lógica de format_duration de google_sheets o la replicamos aquí
-        try:
-            parts = td_str.split(',')
-            days_part = parts[0].strip()
-            time_part = parts[1].strip()
-            days = int(days_part.split(' ')[0])
-            h, m, s = map(int, time_part.split(':'))
-            total_hours = (days * 24) + h
-            return f"{total_hours:02}:{m:02}:{s:02}"
-        except:
-            return td_str
-    return td_str
+    return str(td)
 
-def es_domingo() -> bool:
-    """Verifica si hoy es domingo en hora de Perú"""
-    return datetime.datetime.now(LIMA_TZ).weekday() == 6
+def format_timedelta_total(td):
+    """
+    Formato para horas totales (puede exceder 24h).
+    Soporta timedelta, time, e INTERVAL de PostgreSQL.
+    """
+    if td is None:
+        return "00:00:00"
+    if isinstance(td, datetime.timedelta):
+        total_seconds = int(td.total_seconds())
+        hours = total_seconds // 3600
+        minutes = (total_seconds % 3600) // 60
+        seconds = total_seconds % 60
+        return f"{hours:02}:{minutes:02}:{seconds:02}"
+    if isinstance(td, datetime.time):
+        return td.strftime("%H:%M:%S")
+    # Puede ser str de INTERVAL
+    return str(td)
 
+async def obtener_practicante(interaction, discord_id, usar_followup=False):
+    """
+    Obtiene el ID interno del practicante (solo activos).
+    Retorna None si no está registrado o no está activo.
+    """
+    query = "SELECT id FROM practicante WHERE id_discord = $1 AND estado = 'activo'"
+    resultado = await db.fetch_one(query, discord_id)
 
-async def obtener_practicante(interaction, discord_id):
-    import logging
-    nombre_usuario = interaction.user.mention
-    logging.info(f"🔍 Buscando practicante en BD para: {interaction.user} (ID: {discord_id})")
-    query_practicante = "SELECT id FROM practicante WHERE id_discord = %s"
-    practicante = await db.fetch_one(query_practicante, (discord_id,))
-    
-    # Si no se encuentra el practicante, informar al usuario
-    if not practicante:
-        from bot.config.constants import LINK_FORMULARIO_REGISTRO
-        
-        msg = (
-            f"🚫 {nombre_usuario}, no estás registrado en el sistema.\n"
-            f"📝 **Regístrate aquí:** [Formulario de Registro]({LINK_FORMULARIO_REGISTRO})\n"
-            "Una vez registrado, intenta marcar asistencia nuevamente."
-        )
-        if interaction.response.is_done():
+    if not resultado:
+        msg = "❌ No estás registrado como practicante activo."
+        if usar_followup:
             await interaction.followup.send(msg, ephemeral=True)
         else:
-            await interaction.response.send_message(msg, ephemeral=True)
+            try:
+                await interaction.response.send_message(msg, ephemeral=True)
+            except discord.InteractionResponded:
+                await interaction.followup.send(msg, ephemeral=True)
         return None
-    return practicante['id']
 
-async def verificar_entrada(practicante_id, fecha_actual):
-    query_asistencia_existente = "SELECT id FROM asistencia WHERE practicante_id = %s AND fecha = %s"
-    asistencia_existente = await db.fetch_one(query_asistencia_existente, (practicante_id, fecha_actual))
-    return asistencia_existente
+    return resultado['id']
 
-async def obtener_estado_asistencia(estado_nombre):
-    query_estado = "SELECT id FROM estado_asistencia WHERE estado = %s"
-    estado = await db.fetch_one(query_estado, (estado_nombre,))
-    return estado['id'] if estado else None
+async def obtener_practicante_cualquier_estado(discord_id):
+    """
+    Obtiene datos del practicante sin importar el estado.
+    Útil para verificar si existió alguna vez.
+    """
+    query = "SELECT id, estado, nombre_completo FROM practicante WHERE id_discord = $1"
+    return await db.fetch_one(query, discord_id)
 
-async def get_server_config(guild_id: int):
-    """Obtiene la configuración dinámica de un servidor desde la BD"""
-    query = "SELECT * FROM configuracion_servidor WHERE guild_id = %s"
-    return await db.fetch_one(query, (guild_id,))
-
-async def canal_permitido(interaction: discord.Interaction) -> bool:
-    servidor_id = interaction.guild.id
-    canal_id = interaction.channel.id
-    
-    # 1. Lista global de canales de emergencia/oficiales (Siempre permitidos)
-    canales_oficiales = [
-        1468308523539628208, # Canal Principal Asistencia (Nuevo)
-        1457747478592884878, # Canal Principal Asistencia (Viejo)
-        1457802290093228093  # Canal de Tests
-    ]
-    if canal_id in canales_oficiales:
-        return True
-
-    # 2. Consultar BD para configuración personalizada del servidor
-    config = await get_server_config(servidor_id)
-    canal_configurado = config['canal_asistencia_id'] if config else None
-    
-    if canal_configurado:
-        if canal_id == canal_configurado:
-            return True
-    else:
-        # 3. Fallback a configuración estática de bot.py (si existe)
-        bot = interaction.client
-        canales_estaticos = bot.canales_permitidos.get(servidor_id, [])
-        if canal_id in canales_estaticos:
-            return True
-
-    # Si llegamos aquí, el canal no está permitido
-    import logging
-    logging.warning(f"🚫 Canal denegado en Servidor {servidor_id} (Canal ID: {canal_id})")
-    
-    # Mensaje informativo
-    objetivo = f"<#{canal_configurado}>" if canal_configurado else "el canal oficial"
-    msg = f"🚫 **Canal Incorrecto**\nEste comando solo está habilitado en el canal de asistencia.\n👉 Por favor, ve a {objetivo} para registrar tu asistencia."
-    
-    if interaction.response.is_done():
-        await interaction.followup.send(msg, ephemeral=True)
-    else:
-        await interaction.response.send_message(msg, ephemeral=True)
+def tiene_clase_hoy(practicante_row: dict) -> bool:
+    """
+    Verifica si un practicante tiene clase hoy dado su registro completo.
+    Requiere que el dict contenga los campos clase_lunes..clase_sabado.
+    """
+    hoy = datetime.datetime.now(LIMA_TZ).weekday()  # 0=lunes
+    col = DIAS_CLASE.get(hoy)
+    if col and col in practicante_row:
+        return bool(practicante_row[col])
     return False
 
+async def tiene_clase_hoy_por_id(practicante_id: int) -> bool:
+    """Verifica si un practicante tiene clase hoy consultando la BD."""
+    hoy = datetime.datetime.now(LIMA_TZ).weekday()
+    col = DIAS_CLASE.get(hoy)
+    if not col:
+        return False
+    query = f"SELECT {col} FROM practicante WHERE id = $1"
+    resultado = await db.fetch_one(query, practicante_id)
+    return bool(resultado[col]) if resultado else False
 
-async def verificar_rol_permitido(interaction: discord.Interaction, roles_permitidos: list, usar_followup: bool = False) -> bool:
+async def canal_permitido(interaction) -> bool:
+    """Verifica si el canal actual está en la lista de canales permitidos."""
+    bot = interaction.client
+    guild_id = interaction.guild_id
+    canales = bot.canales_permitidos.get(guild_id, [])
+    if canales and interaction.channel_id not in canales:
+        try:
+            await interaction.followup.send(
+                "❌ Este comando solo se puede usar en el canal de asistencia.",
+                ephemeral=True
+            )
+        except:
+            try:
+                await interaction.response.send_message(
+                    "❌ Este comando solo se puede usar en el canal de asistencia.",
+                    ephemeral=True
+                )
+            except:
+                pass
+        return False
+    return True
+
+async def verificar_entrada(interaction, discord_id, fecha_actual, usar_followup=False):
+    """Verifica si ya existe un registro de entrada para hoy."""
+    query = """
+    SELECT id, hora_entrada FROM asistencia
+    WHERE practicante_id = (SELECT id FROM practicante WHERE id_discord = $1)
+      AND fecha = $2
     """
-    Verifica si el usuario tiene alguno de los roles permitidos.
-    roles_permitidos: Lista de IDs de roles permitidos
-    usar_followup: Si es True, usa followup en lugar de response (para cuando ya se hizo defer)
-    """
-    if not roles_permitidos:
-        return True
-    
-    usuario = interaction.user
-    roles_usuario = [role.id for role in usuario.roles]
-    
-    # Verificar si tiene alguno de los roles permitidos
-    tiene_rol = any(role_id in roles_usuario for role_id in roles_permitidos)
-    
-    if not tiene_rol:
-        mensaje = "No tienes los permisos necesarios para usar este comando."
+    resultado = await db.fetch_one(query, discord_id, fecha_actual)
+    return resultado
+
+def es_domingo():
+    """Retorna True si hoy es domingo en la zona horaria de Lima."""
+    ahora = datetime.datetime.now(LIMA_TZ)
+    return ahora.weekday() == 6  # 6 = domingo
+
+async def verificar_rol_permitido(interaction, roles_permitidos, usar_followup=False):
+    """Verifica si el usuario tiene al menos uno de los roles permitidos."""
+    member = interaction.user
+    roles_usuario = [r.id for r in member.roles]
+    if not any(rol_id in roles_usuario for rol_id in roles_permitidos):
+        msg = "❌ No tienes el rol necesario para usar este comando."
         if usar_followup:
-            await interaction.followup.send(mensaje, ephemeral=True)
+            await interaction.followup.send(msg, ephemeral=True)
         else:
-            await interaction.response.send_message(mensaje, ephemeral=True)
+            try:
+                await interaction.response.send_message(msg, ephemeral=True)
+            except discord.InteractionResponded:
+                await interaction.followup.send(msg, ephemeral=True)
         return False
     return True
 
 
-async def verificar_recuperacion(practicante_id, fecha_actual):
-    """Verifica si ya existe una recuperación para el practicante en la fecha dada"""
-    query_recuperacion = "SELECT id FROM asistencia_recuperacion WHERE practicante_id = %s AND fecha_recuperacion = %s"
-    recuperacion_existente = await db.fetch_one(query_recuperacion, (practicante_id, fecha_actual))
-    return recuperacion_existente
+class ModalJustificacion(ui.Modal, title="Justificación de tardanza"):
+    """Modal para que el usuario ingrese el motivo de su tardanza."""
+    motivo = ui.TextInput(
+        label="Motivo de la tardanza",
+        style=TextStyle.paragraph,
+        placeholder="Explica brevemente el motivo de tu tardanza...",
+        required=True,
+        max_length=500,
+    )
+
+    def __init__(self, practicante_id: int, fecha, hora_entrada, estado: str, **kwargs):
+        super().__init__(**kwargs)
+        self.practicante_id = practicante_id
+        self.fecha = fecha
+        self.hora_entrada = hora_entrada
+        self.estado = estado
+
+    async def on_submit(self, interaction: discord.Interaction):
+        # Registrar la asistencia con el motivo usando reporte
+        query = """
+        INSERT INTO asistencia (practicante_id, estado, fecha, hora_entrada)
+        VALUES ($1, $2, $3, $4)
+        ON CONFLICT (practicante_id, fecha) DO NOTHING
+        """
+        await db.execute_query(query, self.practicante_id, self.estado, self.fecha, self.hora_entrada)
+
+        # Crear reporte de tardanza
+        motivo_texto = self.motivo.value
+        query_reporte = """
+        INSERT INTO reporte (practicante_id, descripcion, tipo, fecha)
+        VALUES ($1, $2, 'tardanza', $3)
+        """
+        await db.execute_query(query_reporte, self.practicante_id, f"Tardanza justificada: {motivo_texto}", self.fecha)
+
+        await interaction.response.send_message(
+            f"✅ Asistencia registrada como **{self.estado}** con justificación.",
+            ephemeral=True
+        )
