@@ -33,7 +33,7 @@ class Test(commands.GroupCog, name="test"):
         target_id = int(id_discord) if id_discord else interaction.user.id
         ahora = datetime.now(LIMA_TZ)
         fecha_actual = ahora.date()
-        hora_actual = ahora.time()
+        hora_actual = ahora.time().replace(microsecond=0)
 
         practicante_id = await obtener_practicante(interaction, target_id, usar_followup=True)
         if not practicante_id:

@@ -54,7 +54,7 @@ class Asistencia(commands.GroupCog, name="asistencia"):
 
         ahora = datetime.now(LIMA_TZ)
         fecha_actual = ahora.date()
-        hora_actual = ahora.time()
+        hora_actual = ahora.time().replace(microsecond=0)
 
         # 2. Verificar horario permitido
         if hora_actual < HORARIO_ENTRADA_INICIO:
@@ -195,7 +195,7 @@ class Asistencia(commands.GroupCog, name="asistencia"):
 
         ahora = datetime.now(LIMA_TZ)
         fecha_actual = ahora.date()
-        hora_actual = ahora.time()
+        hora_actual = ahora.time().replace(microsecond=0)
 
         # 1. Verificar que existe una entrada hoy
         query_entrada = """

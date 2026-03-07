@@ -10,13 +10,36 @@ import sys
 
 def parse_mysql_insert(line: str):
     """Extrae la tabla y los valores de un INSERT INTO MySQL."""
-    match = re.match(r"INSERT INTO `(\w+)` \(([^)]+)\) VALUES (.+);$", line)
-    if not match:
-        return None, None, None
-    table = match.group(1)
-    columns = [c.strip().strip('`') for c in match.group(2).split(',')]
-    values_str = match.group(3)
+    # Intentar primero con nombres de columnas: INSERT INTO `tabla` (`col1`, `col2`) VALUES (...)
+    match_with_cols = re.match(r"INSERT INTO `(\w+)` \(([^)]+)\) VALUES (.+);$", line)
     
+    if match_with_cols:
+        table = match_with_cols.group(1)
+        columns = [c.strip().strip('`') for c in match_with_cols.group(2).split(',')]
+        values_str = match_with_cols.group(3)
+    else:
+        # Intentar sin nombres de columnas (dump de producción): INSERT INTO `tabla` VALUES (...)
+        match_no_cols = re.match(r"INSERT INTO `(\w+)` VALUES (.+);$", line)
+        if not match_no_cols:
+            return None, None, None
+            
+        table = match_no_cols.group(1)
+        values_str = match_no_cols.group(2)
+        
+        # Hardcodear las columnas esperadas según la DB en producción para cada tabla
+        if table == "practicante":
+            columns = ["id", "id_discord", "nombre_completo", "horas_base", "advertencias"]
+        elif table == "asistencia":
+            columns = ["id", "practicante_id", "estado_id", "fecha", "hora_entrada", "hora_salida", "horas_extra", "observaciones", "motivo"]
+        elif table == "bot_admins":
+            columns = ["discord_id", "nombre_referencia", "rol", "estado"]
+        elif table == "asistencia_recuperacion":
+            columns = ["id", "practicante_id", "fecha_recuperacion", "hora_entrada", "hora_salida", "estado"]
+        elif table == "reportes_enviados":
+            columns = ["fecha", "enviado_at"]
+        else:
+            return None, None, None
+
     # Parsear los VALUES (...),(...),...
     rows = []
     current = ""

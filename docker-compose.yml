@@ -47,6 +47,24 @@ services:
     networks:
       - botnet
 
+  # 3. Backend Spring Boot (Java)
+  backend:
+    build: ./backend-java
+    container_name: spring_backend
+    restart: always
+    ports:
+      - "8080:8080"
+    environment:
+      - DB_NAME=${DB_NAME}
+      - DB_USER=${DB_USER}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - TZ=America/Lima
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - botnet
+
 networks:
   botnet:
     driver: bridge

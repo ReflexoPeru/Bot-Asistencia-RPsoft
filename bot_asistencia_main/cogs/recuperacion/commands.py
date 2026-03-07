@@ -57,7 +57,7 @@ class Recuperacion(commands.GroupCog, name="recuperacion"):
 
         ahora = datetime.now(LIMA_TZ)
         fecha_actual = ahora.date()
-        hora_actual = ahora.time()
+        hora_actual = ahora.time().replace(microsecond=0)
 
         # 3. Verificar horario permitido
         if hora_actual < HORA_INICIO_RECUPERACION:
@@ -157,7 +157,7 @@ class Recuperacion(commands.GroupCog, name="recuperacion"):
 
         ahora = datetime.now(LIMA_TZ)
         fecha_actual = ahora.date()
-        hora_actual = ahora.time()
+        hora_actual = ahora.time().replace(microsecond=0)
         nombre_usuario = interaction.user.mention
 
         # 1. Buscar registro abierto de hoy
