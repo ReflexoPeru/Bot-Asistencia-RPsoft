@@ -193,10 +193,12 @@ async def setup_hook():
     cmds = [cmd.name for cmd in synced]
     logging.info(f"Comandos cargados: {', '.join(cmds)}")
 
-    # Opcional: Forzar sincronización en el servidor específico para cambios instantáneos
-    # Reemplaza con tu ID de servidor si quieres que sea ultra rápido el cambio
-    # guild = discord.Object(id=1405602519635202048)
-    # await bot.tree.sync(guild=guild)
+    # Forzar sincronización por servidor para que los comandos aparezcan al instante
+    for guild_id in [1389959112556679239, 1405602519635202048]:
+        guild = discord.Object(id=guild_id)
+        bot.tree.copy_global_to(guild=guild)
+        synced_guild = await bot.tree.sync(guild=guild)
+        logging.info(f'✅ {len(synced_guild)} comandos sincronizados en servidor {guild_id}.')
     
     # Iniciar sincronización con Google Sheets (si está configurada)
     from google_sheets import sync_practicantes_to_db, export_report_to_sheet
