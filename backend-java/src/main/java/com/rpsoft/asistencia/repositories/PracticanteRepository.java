@@ -16,7 +16,7 @@ import java.util.Optional;
  * @since 2026-03-07
  */
 @Repository
-public interface PracticanteRepository extends JpaRepository<PracticanteEntity, Long> {
+public interface PracticanteRepository extends JpaRepository<PracticanteEntity, Integer> {
 
     Optional<PracticanteEntity> findByIdDiscord(Long idDiscord);
 

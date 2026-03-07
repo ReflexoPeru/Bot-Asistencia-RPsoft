@@ -14,8 +14,8 @@ import java.time.LocalDateTime;
  */
 @Value
 public class ReporteResponseDto {
-    Long id;
-    Long practicanteId;
+    Integer id;
+    Integer practicanteId;
     String practicanteNombre;
     String descripcion;
     String tipo;

@@ -41,7 +41,7 @@ public class AsistenciaService {
                 .toList();
     }
 
-    public AsistenciaEntity getById(Long id) {
+    public AsistenciaEntity getById(Integer id) {
         return asistenciaRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Asistencia", "ID", id));
     }
@@ -53,7 +53,7 @@ public class AsistenciaService {
     }
 
     @Transactional
-    public AsistenciaEntity update(Long id, AsistenciaEntity data) {
+    public AsistenciaEntity update(Integer id, AsistenciaEntity data) {
         AsistenciaEntity existing = getById(id);
         existing.setHoraEntrada(data.getHoraEntrada());
         existing.setHoraSalida(data.getHoraSalida());
@@ -64,7 +64,7 @@ public class AsistenciaService {
 
     @CacheEvict(value = "tardanzasAcumuladas", allEntries = true)
     @Transactional
-    public void delete(Long id) {
+    public void delete(Integer id) {
         AsistenciaEntity existing = getById(id);
         asistenciaRepository.delete(existing);
     }

@@ -15,6 +15,6 @@ import lombok.Data;
 public class DeleteResponseDto {
     @Builder.Default
     private String message = "Eliminación exitosa";
-    private Long id;
+    private Integer id;
     private Boolean deleted;
 }

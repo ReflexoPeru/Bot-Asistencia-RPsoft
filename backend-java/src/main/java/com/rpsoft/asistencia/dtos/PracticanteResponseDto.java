@@ -13,7 +13,7 @@ import java.time.LocalDate;
  */
 @Value
 public class PracticanteResponseDto {
-    Long id;
+    Integer id;
     Long idDiscord;
     String nombreCompleto;
     String correo;

@@ -46,7 +46,7 @@ public class PracticanteService {
      * @throws ResourceNotFoundException si no existe
      */
     @Transactional(readOnly = true)
-    public PracticanteResponseDto getById(Long id) {
+    public PracticanteResponseDto getById(Integer id) {
         PracticanteEntity entity = practicanteRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException(ENTITY_NAME, "ID", id));
         return practicanteMapper.toResponseDto(entity);
@@ -93,7 +93,7 @@ public class PracticanteService {
      * @throws ResourceNotFoundException si no existe
      */
     @CacheEvict(value = { "practicantesActivosCount", "practicantesActivosList" }, allEntries = true)
-    public PracticanteResponseDto update(Long id, PracticanteCreateDto dto) {
+    public PracticanteResponseDto update(Integer id, PracticanteCreateDto dto) {
         PracticanteEntity entity = practicanteRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException(ENTITY_NAME, "ID", id));
 
@@ -110,7 +110,7 @@ public class PracticanteService {
      * @throws ResourceNotFoundException si no existe
      */
     @CacheEvict(value = { "practicantesActivosCount", "practicantesActivosList" }, allEntries = true)
-    public DeleteResponseDto delete(Long id, String motivo) {
+    public DeleteResponseDto delete(Integer id, String motivo) {
         PracticanteEntity entity = practicanteRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException(ENTITY_NAME, "ID", id));
 

@@ -14,8 +14,8 @@ import java.time.LocalTime;
  */
 @Value
 public class AsistenciaResponseDto {
-    Long id;
-    Long practicanteId;
+    Integer id;
+    Integer practicanteId;
     String nombreCompleto;
     String estado;
     LocalDate fecha;

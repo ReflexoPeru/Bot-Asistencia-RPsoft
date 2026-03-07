@@ -17,9 +17,9 @@ import java.util.List;
  * @since 2026-03-07
  */
 @Repository
-public interface ReporteRepository extends JpaRepository<ReporteEntity, Long> {
+public interface ReporteRepository extends JpaRepository<ReporteEntity, Integer> {
 
-    Page<ReporteEntity> findByPracticanteId(Long practicanteId, Pageable pageable);
+    Page<ReporteEntity> findByPracticanteId(Integer practicanteId, Pageable pageable);
 
     List<ReporteEntity> findByFecha(LocalDate fecha);
 

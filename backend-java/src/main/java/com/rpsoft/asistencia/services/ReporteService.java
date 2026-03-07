@@ -42,7 +42,7 @@ public class ReporteService {
      * @return página de reportes
      */
     @Transactional(readOnly = true)
-    public Page<ReporteResponseDto> getAll(Long practicanteId, Pageable pageable) {
+    public Page<ReporteResponseDto> getAll(Integer practicanteId, Pageable pageable) {
         if (practicanteId != null) {
             return reporteRepository.findByPracticanteId(practicanteId, pageable)
                     .map(reporteMapper::toResponseDto);
@@ -75,7 +75,7 @@ public class ReporteService {
      * @return reporte actualizado
      * @throws ResourceNotFoundException si no existe
      */
-    public ReporteResponseDto marcarRevisado(Long id) {
+    public ReporteResponseDto marcarRevisado(Integer id) {
         ReporteEntity entity = reporteRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException(ENTITY_NAME, "ID", id));
         entity.setRevisado(true);

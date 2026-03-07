@@ -15,7 +15,7 @@ import java.util.List;
  * @since 2026-03-07
  */
 @Repository
-public interface RecuperacionRepository extends JpaRepository<RecuperacionEntity, Long> {
+public interface RecuperacionRepository extends JpaRepository<RecuperacionEntity, Integer> {
 
     List<RecuperacionEntity> findByFechaAndEstado(LocalDate fecha, String estado);
 }

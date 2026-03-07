@@ -19,7 +19,7 @@ import lombok.NoArgsConstructor;
 public class ReporteCreateDto {
 
     @NotNull(message = "El ID del practicante es obligatorio")
-    private Long practicanteId;
+    private Integer practicanteId;
 
     @NotBlank(message = "La descripción es obligatoria")
     private String descripcion;

@@ -58,7 +58,7 @@ public class PracticanteController {
      * @return datos del practicante
      */
     @GetMapping("/{id}")
-    public ResponseEntity<PracticanteResponseDto> getById(@PathVariable Long id) {
+    public ResponseEntity<PracticanteResponseDto> getById(@PathVariable Integer id) {
         return ResponseEntity.ok(practicanteService.getById(id));
     }
 
@@ -89,7 +89,7 @@ public class PracticanteController {
      */
     @PutMapping("/{id}")
     public ResponseEntity<PracticanteResponseDto> update(
-            @PathVariable Long id,
+            @PathVariable Integer id,
             @Valid @RequestBody PracticanteCreateDto dto) {
         return ResponseEntity.ok(practicanteService.update(id, dto));
     }
@@ -103,7 +103,7 @@ public class PracticanteController {
      */
     @DeleteMapping("/{id}")
     public ResponseEntity<DeleteResponseDto> delete(
-            @PathVariable Long id,
+            @PathVariable Integer id,
             @RequestParam(required = false) String motivo) {
         return ResponseEntity.ok(practicanteService.delete(id, motivo));
     }

@@ -42,7 +42,7 @@ public class ReporteController {
      */
     @GetMapping
     public ResponseEntity<Page<ReporteResponseDto>> getAll(
-            @RequestParam(required = false) Long practicanteId,
+            @RequestParam(required = false) Integer practicanteId,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size,
             @RequestParam(defaultValue = "fecha") String sortBy) {
@@ -68,7 +68,7 @@ public class ReporteController {
      * @return reporte actualizado
      */
     @PutMapping("/{id}/revisar")
-    public ResponseEntity<ReporteResponseDto> marcarRevisado(@PathVariable Long id) {
+    public ResponseEntity<ReporteResponseDto> marcarRevisado(@PathVariable Integer id) {
         return ResponseEntity.ok(reporteService.marcarRevisado(id));
     }
 }

@@ -19,11 +19,11 @@ import java.util.Optional;
  * @since 2026-03-07
  */
 @Repository
-public interface AsistenciaRepository extends JpaRepository<AsistenciaEntity, Long> {
+public interface AsistenciaRepository extends JpaRepository<AsistenciaEntity, Integer> {
 
     List<AsistenciaEntity> findByFechaOrderByHoraEntradaAsc(LocalDate fecha);
 
-    Optional<AsistenciaEntity> findByPracticanteIdAndFecha(Long practicanteId, LocalDate fecha);
+    Optional<AsistenciaEntity> findByPracticanteIdAndFecha(Integer practicanteId, LocalDate fecha);
 
     long countByFechaAndEstado(LocalDate fecha, String estado);
 
