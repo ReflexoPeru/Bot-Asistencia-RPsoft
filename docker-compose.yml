@@ -41,6 +41,8 @@ services:
       - DB_PORT=5432
       - TZ=America/Lima
       - GOOGLE_SHEET_NAME=${GOOGLE_SHEET_NAME}
+      - BACKEND_URL=http://backend:9090/api/v1
+      - BACKEND_API_KEY=${BACKEND_API_KEY}
     depends_on:
       db:
         condition: service_healthy
@@ -53,7 +55,7 @@ services:
     container_name: spring_backend
     restart: always
     ports:
-      - "8080:8080"
+      - "9090:9090"
     environment:
       - DB_NAME=${DB_NAME}
       - DB_USER=${DB_USER}

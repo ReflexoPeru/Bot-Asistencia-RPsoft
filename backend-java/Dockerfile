@@ -26,6 +26,6 @@ COPY --from=build /app/target/*.jar app.jar
 ENV TZ=America/Lima
 RUN apk add --no-cache tzdata
 
-EXPOSE 8080
+EXPOSE 9090
 
 ENTRYPOINT ["java", "-jar", "app.jar"]
