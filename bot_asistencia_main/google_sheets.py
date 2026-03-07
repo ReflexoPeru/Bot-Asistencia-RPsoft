@@ -18,7 +18,7 @@ def format_duration(td_str):
     if not td_str or td_str == 'None' or str(td_str) == '0:00:00':
         return '00:00:00'
 
-    td_str = str(td_str)
+    td_str = str(td_str).split('.')[0]
 
     try:
         if 'day' in td_str:
