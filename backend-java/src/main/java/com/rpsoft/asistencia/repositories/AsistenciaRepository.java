@@ -1,6 +1,7 @@
 package com.rpsoft.asistencia.repositories;
 
 import com.rpsoft.asistencia.entities.AsistenciaEntity;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -36,5 +37,6 @@ public interface AsistenciaRepository extends JpaRepository<AsistenciaEntity, Lo
     long countRegistradosHoy(@Param("fecha") LocalDate fecha);
 
     @Query("SELECT COUNT(a) FROM AsistenciaEntity a WHERE a.estado IN ('tarde', 'sobreHora')")
+    @Cacheable("tardanzasAcumuladas")
     long countTardanzasAcumuladas();
 }

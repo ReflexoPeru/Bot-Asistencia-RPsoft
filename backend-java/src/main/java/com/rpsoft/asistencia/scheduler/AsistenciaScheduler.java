@@ -49,10 +49,11 @@ public class AsistenciaScheduler {
      * <p>
      * Busca registros de asistencia del día actual que tengan hora_entrada
      * pero sin hora_salida, y les asigna las 14:00 como hora de salida
-     * con la marca de salida automática.
+     * con la marca de salida automática. Se ejecuta a las 14:17 para dar 2 minutos
+     * de gracia al script de Python para alertar.
      * </p>
      */
-    @Scheduled(cron = "0 15 14 * * MON-SAT", zone = "America/Lima")
+    @Scheduled(cron = "0 17 14 * * MON-SAT", zone = "America/Lima")
     @Transactional
     public void autoSalidaAsistencia() {
         LocalDate hoy = LocalDate.now();
@@ -85,10 +86,11 @@ public class AsistenciaScheduler {
      * Auto-cierre de sesiones de recuperación a las 20:20 de lunes a sábado.
      * <p>
      * Busca sesiones de recuperación abiertas del día actual y las cierra
-     * con estado 'valido' y hora_salida a las 20:00.
+     * con estado 'valido' y hora_salida a las 20:00. Se ejecuta a las 20:22 para
+     * dar 2 minutos al script Python de enviar las alertas.
      * </p>
      */
-    @Scheduled(cron = "0 20 20 * * MON-SAT", zone = "America/Lima")
+    @Scheduled(cron = "0 22 20 * * MON-SAT", zone = "America/Lima")
     @Transactional
     public void autoCierreRecuperacion() {
         LocalDate hoy = LocalDate.now();

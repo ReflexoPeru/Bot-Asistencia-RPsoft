@@ -9,6 +9,7 @@ import com.rpsoft.asistencia.exceptions.ResourceNotFoundException;
 import com.rpsoft.asistencia.mappers.PracticanteMapper;
 import com.rpsoft.asistencia.repositories.PracticanteRepository;
 import lombok.RequiredArgsConstructor;
+import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
@@ -71,6 +72,7 @@ public class PracticanteService {
      * @throws ResourceAlreadyExistsException si ya existe con el mismo ID de
      *                                        Discord
      */
+    @CacheEvict(value = { "practicantesActivosCount", "practicantesActivosList" }, allEntries = true)
     public PracticanteResponseDto create(PracticanteCreateDto dto) {
         practicanteRepository.findByIdDiscord(dto.getIdDiscord())
                 .ifPresent(existing -> {
@@ -90,6 +92,7 @@ public class PracticanteService {
      * @return practicante actualizado
      * @throws ResourceNotFoundException si no existe
      */
+    @CacheEvict(value = { "practicantesActivosCount", "practicantesActivosList" }, allEntries = true)
     public PracticanteResponseDto update(Long id, PracticanteCreateDto dto) {
         PracticanteEntity entity = practicanteRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException(ENTITY_NAME, "ID", id));
@@ -106,6 +109,7 @@ public class PracticanteService {
      * @return confirmación de eliminación
      * @throws ResourceNotFoundException si no existe
      */
+    @CacheEvict(value = { "practicantesActivosCount", "practicantesActivosList" }, allEntries = true)
     public DeleteResponseDto delete(Long id, String motivo) {
         PracticanteEntity entity = practicanteRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException(ENTITY_NAME, "ID", id));

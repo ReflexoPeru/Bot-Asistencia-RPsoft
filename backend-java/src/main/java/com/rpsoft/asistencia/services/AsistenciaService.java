@@ -1,9 +1,12 @@
 package com.rpsoft.asistencia.services;
 
 import com.rpsoft.asistencia.dtos.AsistenciaResponseDto;
+import com.rpsoft.asistencia.entities.AsistenciaEntity;
+import com.rpsoft.asistencia.exceptions.ResourceNotFoundException;
 import com.rpsoft.asistencia.mappers.AsistenciaMapper;
 import com.rpsoft.asistencia.repositories.AsistenciaRepository;
 import lombok.RequiredArgsConstructor;
+import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -36,6 +39,34 @@ public class AsistenciaService {
         return asistenciaRepository.findByFechaOrderByHoraEntradaAsc(fecha).stream()
                 .map(asistenciaMapper::toResponseDto)
                 .toList();
+    }
+
+    public AsistenciaEntity getById(Long id) {
+        return asistenciaRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Asistencia", "ID", id));
+    }
+
+    @CacheEvict(value = "tardanzasAcumuladas", allEntries = true)
+    @Transactional
+    public AsistenciaEntity create(AsistenciaEntity entity) {
+        return asistenciaRepository.save(entity);
+    }
+
+    @Transactional
+    public AsistenciaEntity update(Long id, AsistenciaEntity data) {
+        AsistenciaEntity existing = getById(id);
+        existing.setHoraEntrada(data.getHoraEntrada());
+        existing.setHoraSalida(data.getHoraSalida());
+        existing.setEstado(data.getEstado());
+        existing.setSalidaAuto(data.getSalidaAuto());
+        return asistenciaRepository.save(existing);
+    }
+
+    @CacheEvict(value = "tardanzasAcumuladas", allEntries = true)
+    @Transactional
+    public void delete(Long id) {
+        AsistenciaEntity existing = getById(id);
+        asistenciaRepository.delete(existing);
     }
 
     /**

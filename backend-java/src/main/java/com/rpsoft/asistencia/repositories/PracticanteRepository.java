@@ -1,6 +1,7 @@
 package com.rpsoft.asistencia.repositories;
 
 import com.rpsoft.asistencia.entities.PracticanteEntity;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
 
@@ -19,7 +20,9 @@ public interface PracticanteRepository extends JpaRepository<PracticanteEntity, 
 
     Optional<PracticanteEntity> findByIdDiscord(Long idDiscord);
 
+    @Cacheable("practicantesActivosList")
     List<PracticanteEntity> findByEstado(String estado);
 
+    @Cacheable("practicantesActivosCount")
     long countByEstado(String estado);
 }

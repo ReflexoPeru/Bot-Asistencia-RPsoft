@@ -180,21 +180,7 @@ class ScheduledTasks(commands.Cog):
 
         for reg in registros:
             try:
-                # 2. Cerrar con hora_salida = 14:00, marcar salida_auto
-                await db.execute_query(
-                    "UPDATE asistencia SET hora_salida = $1, salida_auto = TRUE WHERE id = $2",
-                    HORA_SALIDA_OFICIAL, reg['id']
-                )
-
-                # 3. Crear reporte de afk_salida
-                await db.execute_query(
-                    "INSERT INTO reporte (practicante_id, descripcion, tipo, fecha) VALUES ($1, $2, 'afk_salida', $3)",
-                    reg['practicante_id'],
-                    f"Salida automática a las 14:00 — no marcó salida antes de las 14:15",
-                    fecha_hoy
-                )
-
-                # 4. Notificar por DM
+                # 2. Notificar por DM (El cierre en BD lo hace el backend Java a las 14:17)
                 user = self.bot.get_user(reg['id_discord']) or await self.bot.fetch_user(reg['id_discord'])
                 if user:
                     try:
@@ -207,12 +193,12 @@ class ScheduledTasks(commands.Cog):
                     except discord.Forbidden:
                         logging.warning(f"No se pudo enviar DM a {reg['nombre_completo']}")
 
-                logging.info(f"⚠️ Auto-salida para {reg['nombre_completo']}")
+                logging.info(f"⚠️ Alerta de auto-salida enviada a {reg['nombre_completo']}")
 
             except Exception as e:
-                logging.error(f"Error cerrando asistencia ID {reg['id']}: {e}")
+                logging.error(f"Error procesando alerta de asistencia para usuario ID {reg['id']}: {e}")
 
-        logging.info(f"🔒 Auto-salida completada. {len(registros)} registros procesados.")
+        logging.info(f"🔒 Alertas de auto-salida enviadas. {len(registros)} usuarios notificados.")
 
     @auto_salida_asistencia.before_loop
     async def before_auto_salida(self):
@@ -437,21 +423,7 @@ class ScheduledTasks(commands.Cog):
 
         for reg in registros:
             try:
-                # 2. Cerrar con hora_salida = 20:00, marcar salida_auto
-                await db.execute_query(
-                    "UPDATE recuperacion SET hora_salida = $1, estado = 'valido', salida_auto = TRUE WHERE id = $2",
-                    HORA_FIN_RECUPERACION, reg['id']
-                )
-
-                # 3. Crear reporte afk_salida
-                await db.execute_query(
-                    "INSERT INTO reporte (practicante_id, descripcion, tipo, fecha) VALUES ($1, $2, 'afk_salida', $3)",
-                    reg['practicante_id'],
-                    f"Cierre automático de recuperación — no marcó salida antes de las 20:20",
-                    fecha_hoy
-                )
-
-                # 4. Notificar por DM
+                # 2. Notificar por DM (El cierre en BD lo hace el backend Java a las 20:22)
                 user = self.bot.get_user(reg['id_discord']) or await self.bot.fetch_user(reg['id_discord'])
                 if user:
                     try:
@@ -464,12 +436,12 @@ class ScheduledTasks(commands.Cog):
                     except discord.Forbidden:
                         logging.warning(f"No se pudo enviar DM a {reg['nombre_completo']}")
 
-                logging.info(f"⚠️ Recuperación cerrada para {reg['nombre_completo']}")
+                logging.info(f"⚠️ Alerta de cierre de recuperación enviada a {reg['nombre_completo']}")
 
             except Exception as e:
-                logging.error(f"Error cerrando recuperación ID {reg['id']}: {e}")
+                logging.error(f"Error procesando alerta de recuperación para usuario ID {reg['id']}: {e}")
 
-        logging.info(f"🔒 Cierre automático completado. {len(registros)} registros procesados.")
+        logging.info(f"🔒 Alertas de cierre automático enviadas. {len(registros)} usuarios notificados.")
 
     @auto_cierre_recuperacion.before_loop
     async def before_cierre_recuperacion(self):
