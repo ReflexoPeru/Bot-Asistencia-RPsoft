@@ -322,43 +322,60 @@ class Asistencia(commands.GroupCog, name="asistencia"):
     # ──────────────────────────────────────────────
     # /asistencia historial
     # ──────────────────────────────────────────────
-    @app_commands.command(name='historial', description="Ver tu historial de asistencia (últimos 7 días)")
+    @app_commands.command(name='historial', description="Ver tu historial de asistencia")
     async def historial(self, interaction: discord.Interaction):
-        from utils import LIMA_TZ, format_timedelta
+        import aiohttp
         await interaction.response.defer(ephemeral=True)
 
         discord_id = interaction.user.id
-        practicante_id = await obtener_practicante(interaction, discord_id, usar_followup=True)
-        if not practicante_id:
-            return
 
-        query = """
-        SELECT fecha, estado, hora_entrada, hora_salida
-        FROM asistencia
-        WHERE practicante_id = $1
-        ORDER BY fecha DESC
-        LIMIT 7
-        """
-        registros = await db.fetch_all(query, practicante_id)
+        try:
+            async with aiohttp.ClientSession() as session:
+                url = f"http://127.0.0.1:8080/api/asistencia/historial/{discord_id}"
+                async with session.get(url) as response:
+                    if response.status == 200:
+                        data = await response.json()
+                        
+                        embed = Embed(title=f"📊 Historial de asistencia - {data.get('nombreCompleto', 'Desconocido')}", color=Color.blue())
+                        
+                        # Horas convertidas de segundos a horas redondeadas a 1 decimal
+                        h_semana = round(data.get('horasSemanalesSegundos', 0) / 3600.0, 1)
+                        h_total = round(data.get('horasTotalesSegundos', 0) / 3600.0, 1)
+                        h_recup = round(data.get('horasRecuperacionSegundos', 0) / 3600.0, 1)
+                        
+                        embed.add_field(name="🕒 Horas Semanales", value=f"{h_semana}h", inline=True)
+                        embed.add_field(name="📈 Horas Totales", value=f"{h_total}h", inline=True)
+                        embed.add_field(name="🔄 Horas Recuperación", value=f"{h_recup}h", inline=True)
 
-        if not registros:
-            await interaction.followup.send("📭 No tienes registros de asistencia.", ephemeral=True)
-            return
+                        registros = data.get('ultimosRegistros', [])
+                        if not registros:
+                            embed.description = "No hay registros recientes."
+                        else:
+                            # Sólo mostrar los últimos 7
+                            for reg in registros[:7]:
+                                fecha = reg.get('fecha', '')
+                                he = reg.get('horaEntrada', '—')
+                                hs = reg.get('horaSalida', '—')
+                                estado = reg.get('estado', '').upper()
+                                recup = " (Recuperación)" if reg.get('esRecuperacion') else ""
+                                
+                                # Si viene de Java es "HH:MM:SS" pero queremos algo más corto si se prefiere, aunque "HH:MM" es standard.
+                                # Ya viene truncado como "14:00" o "14:00:00" o "--:--".
+                                
+                                embed.add_field(
+                                    name=f"📅 {fecha} — {estado}{recup}",
+                                    value=f"Entrada: {he} | Salida: {hs}",
+                                    inline=False
+                                )
 
-        embed = Embed(title="📊 Historial de asistencia (últimos 7 días)", color=Color.blue())
-
-        for reg in registros:
-            he = format_timedelta(reg['hora_entrada']) if reg['hora_entrada'] else "—"
-            hs = format_timedelta(reg['hora_salida']) if reg['hora_salida'] else "—"
-            fecha_str = reg['fecha'].strftime('%d/%m')
-            estado = reg['estado'].upper()
-            embed.add_field(
-                name=f"📅 {fecha_str} — {estado}",
-                value=f"Entrada: {he} | Salida: {hs}",
-                inline=False
-            )
-
-        await interaction.followup.send(embed=embed, ephemeral=True)
+                        await interaction.followup.send(embed=embed, ephemeral=True)
+                    elif response.status == 404:
+                         await interaction.followup.send("📭 No tienes registros de asistencia o no estás registrado.", ephemeral=True)
+                    else:
+                        await interaction.followup.send(f"❌ Error al consultar el historial: HTTP {response.status}", ephemeral=True)
+        except Exception as e:
+            logging.error(f"Error llamando al API de historial para {discord_id}: {e}")
+            await interaction.followup.send("❌ Hubo un error al contactar con el servidor.", ephemeral=True)
 
 
 async def setup(bot):

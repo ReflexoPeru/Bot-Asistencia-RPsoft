@@ -17,6 +17,7 @@ public class PracticanteResponseDto {
     Long idDiscord;
     String nombreCompleto;
     String correo;
+    String correoInstitucional;
     Boolean claseLunes;
     Boolean claseMartes;
     Boolean claseMiercoles;

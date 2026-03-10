@@ -75,4 +75,11 @@ public class AsistenciaController {
                 "mes", String.format("%d-%02d", year, month),
                 "fechas", fechas));
     }
+
+    @GetMapping("/historial/{idDiscord}")
+    public ResponseEntity<com.rpsoft.asistencia.dtos.ResumenHistorialDto> getHistorial(
+            @org.springframework.web.bind.annotation.PathVariable Long idDiscord) {
+        com.rpsoft.asistencia.dtos.ResumenHistorialDto resumen = asistenciaService.getResumenHistorial(idDiscord);
+        return ResponseEntity.ok(resumen);
+    }
 }

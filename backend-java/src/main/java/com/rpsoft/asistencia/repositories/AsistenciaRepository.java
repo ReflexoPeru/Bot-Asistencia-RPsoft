@@ -39,4 +39,15 @@ public interface AsistenciaRepository extends JpaRepository<AsistenciaEntity, In
     @Query("SELECT COUNT(a) FROM AsistenciaEntity a WHERE a.estado IN ('tarde', 'sobreHora')")
     @Cacheable("tardanzasAcumuladas")
     long countTardanzasAcumuladas();
+
+    @Query(value = "SELECT COALESCE(SUM(EXTRACT(EPOCH FROM (hora_salida - hora_entrada))), 0) FROM asistencia WHERE practicante_id = :practicanteId AND estado IN ('temprano', 'tarde', 'sobreHora')", nativeQuery = true)
+    long sumDuracionAprobadaSegundos(@Param("practicanteId") Integer practicanteId);
+
+    @Query(value = "SELECT COALESCE(SUM(EXTRACT(EPOCH FROM (hora_salida - hora_entrada))), 0) FROM asistencia WHERE practicante_id = :practicanteId AND estado IN ('temprano', 'tarde', 'sobreHora') AND fecha >= :startDate AND fecha <= :endDate", nativeQuery = true)
+    long sumDuracionRangoSegundos(@Param("practicanteId") Integer practicanteId,
+            @Param("startDate") LocalDate startDate, @Param("endDate") LocalDate endDate);
+
+    @Query("SELECT a FROM AsistenciaEntity a WHERE a.practicante.id = :practicanteId ORDER BY a.fecha DESC")
+    List<AsistenciaEntity> findUltimosRegistros(@Param("practicanteId") Integer practicanteId,
+            org.springframework.data.domain.Pageable pageable);
 }

@@ -13,6 +13,15 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDate;
 import java.util.List;
 
+import com.rpsoft.asistencia.repositories.PracticanteRepository;
+import com.rpsoft.asistencia.repositories.RecuperacionRepository;
+import com.rpsoft.asistencia.dtos.ResumenHistorialDto;
+import org.springframework.data.domain.PageRequest;
+import java.time.temporal.ChronoField;
+import java.time.DayOfWeek;
+import java.util.ArrayList;
+import java.util.Comparator;
+
 /**
  * Servicio para consultar registros de asistencia.
  *
@@ -27,6 +36,8 @@ import java.util.List;
 public class AsistenciaService {
 
     private final AsistenciaRepository asistenciaRepository;
+    private final RecuperacionRepository recuperacionRepository;
+    private final PracticanteRepository practicanteRepository;
     private final AsistenciaMapper asistenciaMapper;
 
     /**
@@ -78,5 +89,78 @@ public class AsistenciaService {
      */
     public List<LocalDate> getFechasConRegistros(int year, int month) {
         return asistenciaRepository.findFechasConRegistros(year, month);
+    }
+
+    public ResumenHistorialDto getResumenHistorial(Long idDiscord) {
+        var practicante = practicanteRepository.findByIdDiscord(idDiscord)
+                .orElseThrow(() -> new ResourceNotFoundException("Practicante", "idDiscord", idDiscord));
+
+        Integer pId = practicante.getId();
+
+        LocalDate hoy = LocalDate.now();
+        LocalDate inicioSemana = hoy.with(ChronoField.DAY_OF_WEEK, DayOfWeek.MONDAY.getValue());
+        LocalDate finSemana = hoy.with(ChronoField.DAY_OF_WEEK, DayOfWeek.SUNDAY.getValue());
+
+        long horasTotales = asistenciaRepository.sumDuracionAprobadaSegundos(pId);
+        long horasSemanales = asistenciaRepository.sumDuracionRangoSegundos(pId, inicioSemana, finSemana);
+        long horasRecuperacion = recuperacionRepository.sumDuracionAprobadaSegundos(pId);
+
+        List<AsistenciaEntity> uA = asistenciaRepository.findUltimosRegistros(pId, PageRequest.of(0, 10));
+        List<com.rpsoft.asistencia.entities.RecuperacionEntity> uR = recuperacionRepository.findUltimosRegistros(pId,
+                PageRequest.of(0, 5));
+
+        List<ResumenHistorialDto.RegistroDiarioDto> registros = new ArrayList<>();
+
+        for (AsistenciaEntity a : uA) {
+            long duracion = 0;
+            if (a.getHoraSalida() != null && a.getHoraEntrada() != null) {
+                duracion = java.time.Duration.between(a.getHoraEntrada(), a.getHoraSalida()).getSeconds();
+            }
+            registros.add(ResumenHistorialDto.RegistroDiarioDto.builder()
+                    .fecha(a.getFecha())
+                    .diaSemana(obtenerDiaSemana(a.getFecha()))
+                    .horaEntrada(a.getHoraEntrada() != null ? a.getHoraEntrada().toString() : "--:--")
+                    .horaSalida(a.getHoraSalida() != null ? a.getHoraSalida().toString() : "--:--")
+                    .estado(a.getEstado())
+                    .esRecuperacion(false)
+                    .duracionSegundos(duracion)
+                    .build());
+        }
+
+        for (com.rpsoft.asistencia.entities.RecuperacionEntity r : uR) {
+            long duracion = 0;
+            if (r.getHoraSalida() != null && r.getHoraEntrada() != null) {
+                duracion = java.time.Duration.between(r.getHoraEntrada(), r.getHoraSalida()).getSeconds();
+            }
+            registros.add(ResumenHistorialDto.RegistroDiarioDto.builder()
+                    .fecha(r.getFecha())
+                    .diaSemana(obtenerDiaSemana(r.getFecha()))
+                    .horaEntrada(r.getHoraEntrada() != null ? r.getHoraEntrada().toString() : "--:--")
+                    .horaSalida(r.getHoraSalida() != null ? r.getHoraSalida().toString() : "--:--")
+                    .estado(r.getEstado())
+                    .esRecuperacion(true)
+                    .duracionSegundos(duracion)
+                    .build());
+        }
+
+        registros.sort(Comparator.comparing(ResumenHistorialDto.RegistroDiarioDto::getFecha).reversed()
+                .thenComparing(r -> r.isEsRecuperacion() ? 1 : 0));
+        if (registros.size() > 7) {
+            registros = registros.subList(0, 7);
+        }
+
+        return ResumenHistorialDto.builder()
+                .nombreCompleto(practicante.getNombreCompleto())
+                .idDiscord(practicante.getIdDiscord())
+                .horasSemanalesSegundos(horasSemanales)
+                .horasTotalesSegundos(horasTotales)
+                .horasRecuperacionSegundos(horasRecuperacion)
+                .ultimosRegistros(registros)
+                .build();
+    }
+
+    private String obtenerDiaSemana(LocalDate fecha) {
+        String[] dias = { "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo" };
+        return dias[fecha.getDayOfWeek().getValue() - 1];
     }
 }

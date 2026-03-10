@@ -2,8 +2,10 @@ package com.rpsoft.asistencia.scheduler;
 
 import com.rpsoft.asistencia.entities.AsistenciaEntity;
 import com.rpsoft.asistencia.entities.RecuperacionEntity;
+import com.rpsoft.asistencia.entities.ReporteEntity;
 import com.rpsoft.asistencia.repositories.AsistenciaRepository;
 import com.rpsoft.asistencia.repositories.RecuperacionRepository;
+import com.rpsoft.asistencia.repositories.ReporteRepository;
 import com.rpsoft.asistencia.services.BotNotificationService;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
@@ -14,19 +16,23 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.LocalTime;
+import java.time.ZoneId;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
 
 /**
- * Tareas programadas de asistencia migradas desde el bot Python.
+ * Tareas programadas para control automático de asistencia.
  * <p>
- * - Auto-salida de asistencia a las 14:15 (L-S)
- * - Auto-cierre de recuperación a las 20:20 (L-S)
+ * Contiene los jobs de auto-salida regular y auto-cierre de recuperaciones,
+ * notificando al canal de Discord correspondiente.
  * </p>
  *
  * @author RPSoft Team
  * @version 1.0
  * @since 2026-03-07
+ * @see BotNotificationService
  */
 @Component
 @RequiredArgsConstructor
@@ -34,29 +40,30 @@ public class AsistenciaScheduler {
 
     private static final Logger log = LoggerFactory.getLogger(AsistenciaScheduler.class);
 
+    private final AsistenciaRepository asistenciaRepository;
+    private final RecuperacionRepository recuperacionRepository;
+    private final ReporteRepository reporteRepository;
+    private final BotNotificationService botNotificationService;
+
+    @Value("${discord.bot.channels.asistencia}")
+    private String canalAsistencia;
+
     private static final LocalTime HORA_SALIDA_OFICIAL = LocalTime.of(14, 0);
     private static final LocalTime HORA_FIN_RECUPERACION = LocalTime.of(20, 0);
 
-    private final AsistenciaRepository asistenciaRepository;
-    private final RecuperacionRepository recuperacionRepository;
-    private final BotNotificationService botNotificationService;
-
-    @Value("${bot.channel.asistencia:}")
-    private String canalAsistencia;
-
     /**
-     * Auto-cierre de salida de asistencia a las 14:15 de lunes a sábado.
+     * Auto-salida de asistencia regular a las 14:17 de lunes a sábado.
      * <p>
-     * Busca registros de asistencia del día actual que tengan hora_entrada
-     * pero sin hora_salida, y les asigna las 14:00 como hora de salida
-     * con la marca de salida automática. Se ejecuta a las 14:17 para dar 2 minutos
-     * de gracia al script de Python para alertar.
+     * Busca registros sin salida del día actual y les asigna 14:00. Se
+     * ejecuta a las 14:17 para dar 2 minutos al script Python de enviar las
+     * alertas de tardanza de recuperación (14:15).
      * </p>
      */
     @Scheduled(cron = "0 17 14 * * MON-SAT", zone = "America/Lima")
     @Transactional
     public void autoSalidaAsistencia() {
-        LocalDate hoy = LocalDate.now();
+        LocalDate hoy = LocalDate.now(ZoneId.of("America/Lima"));
+        LocalDateTime nowInfo = LocalDateTime.now(ZoneId.of("America/Lima")).truncatedTo(ChronoUnit.SECONDS);
         List<AsistenciaEntity> sinSalida = asistenciaRepository.findSinSalidaByFecha(hoy);
 
         if (sinSalida.isEmpty()) {
@@ -69,6 +76,15 @@ public class AsistenciaScheduler {
             asistencia.setHoraSalida(HORA_SALIDA_OFICIAL);
             asistencia.setSalidaAuto(true);
             asistenciaRepository.save(asistencia);
+
+            ReporteEntity reporte = new ReporteEntity();
+            reporte.setPracticante(asistencia.getPracticante());
+            reporte.setTipo("afk_salida");
+            reporte.setDescripcion("Salida automática por sistema (Jornada regular).");
+            reporte.setFecha(hoy);
+            reporte.setCreatedAt(nowInfo);
+            reporteRepository.save(reporte);
+
             count++;
         }
 
@@ -93,7 +109,8 @@ public class AsistenciaScheduler {
     @Scheduled(cron = "0 22 20 * * MON-SAT", zone = "America/Lima")
     @Transactional
     public void autoCierreRecuperacion() {
-        LocalDate hoy = LocalDate.now();
+        LocalDate hoy = LocalDate.now(ZoneId.of("America/Lima"));
+        LocalDateTime nowInfo = LocalDateTime.now(ZoneId.of("America/Lima")).truncatedTo(ChronoUnit.SECONDS);
         List<RecuperacionEntity> abiertas = recuperacionRepository.findByFechaAndEstado(hoy, "abierto");
 
         if (abiertas.isEmpty()) {
@@ -107,6 +124,15 @@ public class AsistenciaScheduler {
             rec.setEstado("valido");
             rec.setSalidaAuto(true);
             recuperacionRepository.save(rec);
+
+            ReporteEntity reporte = new ReporteEntity();
+            reporte.setPracticante(rec.getPracticante());
+            reporte.setTipo("afk_salida");
+            reporte.setDescripcion("Salida automática por sistema (Recuperación).");
+            reporte.setFecha(hoy);
+            reporte.setCreatedAt(nowInfo);
+            reporteRepository.save(reporte);
+
             count++;
         }
 

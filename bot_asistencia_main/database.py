@@ -227,7 +227,6 @@ async def ensure_db_setup():
             admins = [
                 (615932763161362636, 'Renso Mamani', 'Dev Principal'),
                 (824692049084678144, 'Wilber Peralta', 'Product Owner'),
-                (1395195164779347988, 'Jordy', 'Developer'),
             ]
             for discord_id, nombre, rol in admins:
                 await conn.execute("""

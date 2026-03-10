@@ -27,6 +27,7 @@ public class PracticanteCreateDto {
     private String nombreCompleto;
 
     private String correo;
+    private String correoInstitucional;
     private Boolean claseLunes;
     private Boolean claseMartes;
     private Boolean claseMiercoles;

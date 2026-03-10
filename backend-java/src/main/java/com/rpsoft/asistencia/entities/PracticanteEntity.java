@@ -40,6 +40,9 @@ public class PracticanteEntity extends AuditableEntity {
     @Column(name = "correo", length = 255)
     private String correo;
 
+    @Column(name = "correo_institucional", length = 255)
+    private String correoInstitucional;
+
     // --- Días con clases ---
     @Column(name = "clase_lunes")
     private Boolean claseLunes = false;
