@@ -331,7 +331,9 @@ class Asistencia(commands.GroupCog, name="asistencia"):
 
         try:
             async with aiohttp.ClientSession() as session:
-                url = f"http://127.0.0.1:8080/api/asistencia/historial/{discord_id}"
+                backend_url = getattr(self.bot, '_backend_url', 'http://backend:9090/api/v1')
+                base_api_url = backend_url.replace('/v1', '')
+                url = f"{base_api_url}/asistencia/historial/{discord_id}"
                 async with session.get(url) as response:
                     if response.status == 200:
                         data = await response.json()
