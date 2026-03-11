@@ -56,7 +56,9 @@ public class AsistenciaScheduler {
      * <p>
      * Busca registros sin salida del día actual y les asigna 14:00. Se
      * ejecuta a las 14:17 para dar 2 minutos al script Python de enviar las
-     * alertas de tardanza de recuperación (14:15).
+     * alertas de auto-salida (14:15). Sí, la intención es que el bot lea
+     * los registros como "pendientes" a las 14:15, envíe los DMs, y luego
+     * el backend los cierre definitivamente a las 14:17.
      * </p>
      */
     @Scheduled(cron = "0 17 14 * * MON-SAT", zone = "America/Lima")
@@ -99,11 +101,12 @@ public class AsistenciaScheduler {
     }
 
     /**
-     * Auto-cierre de sesiones de recuperación a las 20:20 de lunes a sábado.
+     * Auto-cierre de sesiones de recuperación a las 20:22 de lunes a sábado.
      * <p>
      * Busca sesiones de recuperación abiertas del día actual y las cierra
      * con estado 'valido' y hora_salida a las 20:00. Se ejecuta a las 20:22 para
-     * dar 2 minutos al script Python de enviar las alertas.
+     * dar 2 minutos al script Python para enviar las alertas de cierre (20:20)
+     * antes de asentar los cambios en la base de datos.
      * </p>
      */
     @Scheduled(cron = "0 22 20 * * MON-SAT", zone = "America/Lima")
