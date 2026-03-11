@@ -45,7 +45,7 @@ public class AsistenciaScheduler {
     private final ReporteRepository reporteRepository;
     private final BotNotificationService botNotificationService;
 
-    @Value("${discord.bot.channels.asistencia}")
+    @Value("${discord.bot.channels.asistencia:}")
     private String canalAsistencia;
 
     private static final LocalTime HORA_SALIDA_OFICIAL = LocalTime.of(14, 0);
