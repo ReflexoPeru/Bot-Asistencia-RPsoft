@@ -109,6 +109,7 @@ public class PracticanteEntity extends AuditableEntity {
     @Column(name = "baneos")
     private Integer baneos = 0;
 
+    @org.hibernate.annotations.JdbcTypeCode(org.hibernate.type.SqlTypes.INTERVAL_SECOND)
     @Column(name = "horas_base", columnDefinition = "interval")
     private Duration horasBase;
 }
