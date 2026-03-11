@@ -17,6 +17,7 @@ public class ResumenHistorialDto {
     long horasSemanalesSegundos; // Total de la semana actual
     long horasTotalesSegundos; // Total histórico
     long horasRecuperacionSegundos; // Total histórico en recuperación
+    long horasRecuperacionSemanalesSegundos; // Total semanal en recuperación
 
     // Nueva información
     long horasBaseSegundos; // Límite total de horas (de practicante)

@@ -107,8 +107,7 @@ public class AsistenciaService {
         long horasSemanales = asistenciaRepository.sumDuracionRangoSegundos(pId, inicioSemana, finSemana);
         long horasRecuperacion = recuperacionRepository.sumDuracionAprobadaSegundos(pId);
 
-        long horasBaseSegundos = practicante.getHorasBase() != null ? practicante.getHorasBase().getSeconds()
-                : 36 * 3600L;
+        long horasBaseSegundos = 576 * 3600L;
         long tardanzasTotales = asistenciaRepository.countByPracticanteIdAndEstadoIn(pId,
                 List.of("tarde", "sobreHora"));
 
@@ -162,8 +161,8 @@ public class AsistenciaService {
 
         registros.sort(Comparator.comparing(ResumenHistorialDto.RegistroDiarioDto::getFecha).reversed()
                 .thenComparing(r -> r.isEsRecuperacion() ? 1 : 0));
-        if (registros.size() > 14) {
-            registros = registros.subList(0, 14);
+        if (registros.size() > 7) {
+            registros = registros.subList(0, 7);
         }
 
         return ResumenHistorialDto.builder()

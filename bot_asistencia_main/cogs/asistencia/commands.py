@@ -340,16 +340,19 @@ class Asistencia(commands.GroupCog, name="asistencia"):
                         
                         embed = Embed(title=f"📊 Historial de asistencia - {data.get('nombreCompleto', 'Desconocido')}", color=Color.blue())
                         
-                        # Parsing hours
+                        # Horas convertidas de segundos a horas redondeadas a 1 decimal
                         h_semana = round(data.get('horasSemanalesSegundos', 0) / 3600.0, 1)
                         h_total = round(data.get('horasTotalesSegundos', 0) / 3600.0, 1)
-                        h_recup = round(data.get('horasRecuperacionSegundos', 0) / 3600.0, 1)
-                        h_base = round(data.get('horasBaseSegundos', 36*3600.0) / 3600.0, 1)
+                        h_recup_semana = round(data.get('horasRecuperacionSemanalesSegundos', 0) / 3600.0, 1)
+                        h_recup_total = round(data.get('horasRecuperacionSegundos', 0) / 3600.0, 1)
+                        h_base = 576.0 # Meta total de horas forzado a 576h
                         tardanzas = data.get('tardanzasTotales', 0)
                         reportes_list = data.get('reportes', [])
 
-                        h_falta_semana = max(0.0, 36.0 - h_semana) # límite de 36h pedido
-                        h_falta_total = max(0.0, h_base - h_total)
+                        h_falta_semana = max(0.0, 36.0 - (h_semana + h_recup_semana)) # límite de 36h pedido
+                        h_falta_total = max(0.0, h_base - (h_total + h_recup_total))
+                        
+                        h_total_acumulado = round(h_total + h_recup_total, 1)
 
                         registros = data.get('ultimosRegistros', [])
                         
@@ -392,7 +395,7 @@ class Asistencia(commands.GroupCog, name="asistencia"):
                         )
                         embed_semanal.add_field(
                             name="Horas Trabajadas",
-                            value=f"🔸 **Normal:** {h_semana}h\n🔸 **Recuperación:** {h_recup}h",
+                            value=f"🔸 **Normal:** {h_semana}h\n🔸 **Recuperación:** {h_recup_semana}h",
                             inline=True
                         )
                         embed_semanal.add_field(
@@ -409,7 +412,7 @@ class Asistencia(commands.GroupCog, name="asistencia"):
                         )
                         embed_total.add_field(
                             name="Acumulado Global",
-                            value=f"� **Total Llevado:** {h_total}h\n�🔻 **Falta para concluir:** {round(h_falta_total, 1)}h",
+                            value=f"🎯 **Meta Total:** {h_base}h\n🔸 **Total Llevado:** {h_total_acumulado}h\n🔻 **Falta para concluir:** {round(h_falta_total, 1)}h",
                             inline=True
                         )
                         embed_total.add_field(
@@ -440,7 +443,6 @@ class Asistencia(commands.GroupCog, name="asistencia"):
                             embed_total.add_field(name="🚨 Detalle de Reportes", value=reportes_text, inline=False)
 
                         await interaction.followup.send(embed=embed_total, ephemeral=True)
-
                     elif response.status == 404:
                          await interaction.followup.send("📭 No tienes registros de asistencia o no estás registrado.", ephemeral=True)
                     else:

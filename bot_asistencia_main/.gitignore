@@ -62,3 +62,7 @@ bot_asistencia_main/credentials.json
 credentials.json
 .env
 credentials.json
+
+.docker-compose.override.yml
+migracion_postgres_datos.sql
+respaldo_migracion.sql
