@@ -18,8 +18,21 @@ public class ResumenHistorialDto {
     long horasTotalesSegundos; // Total histórico
     long horasRecuperacionSegundos; // Total histórico en recuperación
 
+    // Nueva información
+    long horasBaseSegundos; // Límite total de horas (de practicante)
+    long tardanzasTotales;
+    List<ReporteResumenDto> reportes;
+
     // Listado de los últimos registros (ej. 7 días)
     List<RegistroDiarioDto> ultimosRegistros;
+
+    @Value
+    @Builder
+    public static class ReporteResumenDto {
+        String tipo;
+        String descripcion;
+        LocalDate fecha;
+    }
 
     @Value
     @Builder

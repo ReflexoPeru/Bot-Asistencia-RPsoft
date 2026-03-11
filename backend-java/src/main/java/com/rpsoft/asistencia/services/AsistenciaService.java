@@ -15,6 +15,7 @@ import java.util.List;
 
 import com.rpsoft.asistencia.repositories.PracticanteRepository;
 import com.rpsoft.asistencia.repositories.RecuperacionRepository;
+import com.rpsoft.asistencia.repositories.ReporteRepository;
 import com.rpsoft.asistencia.dtos.ResumenHistorialDto;
 import org.springframework.data.domain.PageRequest;
 import java.time.temporal.ChronoField;
@@ -38,6 +39,7 @@ public class AsistenciaService {
     private final AsistenciaRepository asistenciaRepository;
     private final RecuperacionRepository recuperacionRepository;
     private final PracticanteRepository practicanteRepository;
+    private final ReporteRepository reporteRepository;
     private final AsistenciaMapper asistenciaMapper;
 
     /**
@@ -105,6 +107,21 @@ public class AsistenciaService {
         long horasSemanales = asistenciaRepository.sumDuracionRangoSegundos(pId, inicioSemana, finSemana);
         long horasRecuperacion = recuperacionRepository.sumDuracionAprobadaSegundos(pId);
 
+        long horasBaseSegundos = practicante.getHorasBase() != null ? practicante.getHorasBase().getSeconds()
+                : 36 * 3600L;
+        long tardanzasTotales = asistenciaRepository.countByPracticanteIdAndEstadoIn(pId,
+                List.of("tarde", "sobreHora"));
+
+        List<ResumenHistorialDto.ReporteResumenDto> reportes = reporteRepository
+                .findByPracticanteId(pId, PageRequest.of(0, 20))
+                .getContent().stream()
+                .map(r -> ResumenHistorialDto.ReporteResumenDto.builder()
+                        .tipo(r.getTipo())
+                        .descripcion(r.getDescripcion())
+                        .fecha(r.getFecha())
+                        .build())
+                .toList();
+
         List<AsistenciaEntity> uA = asistenciaRepository.findUltimosRegistros(pId, PageRequest.of(0, 10));
         List<com.rpsoft.asistencia.entities.RecuperacionEntity> uR = recuperacionRepository.findUltimosRegistros(pId,
                 PageRequest.of(0, 5));
@@ -145,8 +162,8 @@ public class AsistenciaService {
 
         registros.sort(Comparator.comparing(ResumenHistorialDto.RegistroDiarioDto::getFecha).reversed()
                 .thenComparing(r -> r.isEsRecuperacion() ? 1 : 0));
-        if (registros.size() > 7) {
-            registros = registros.subList(0, 7);
+        if (registros.size() > 14) {
+            registros = registros.subList(0, 14);
         }
 
         return ResumenHistorialDto.builder()
@@ -155,6 +172,9 @@ public class AsistenciaService {
                 .horasSemanalesSegundos(horasSemanales)
                 .horasTotalesSegundos(horasTotales)
                 .horasRecuperacionSegundos(horasRecuperacion)
+                .horasBaseSegundos(horasBaseSegundos)
+                .tardanzasTotales(tardanzasTotales)
+                .reportes(reportes)
                 .ultimosRegistros(registros)
                 .build();
     }

@@ -340,37 +340,107 @@ class Asistencia(commands.GroupCog, name="asistencia"):
                         
                         embed = Embed(title=f"📊 Historial de asistencia - {data.get('nombreCompleto', 'Desconocido')}", color=Color.blue())
                         
-                        # Horas convertidas de segundos a horas redondeadas a 1 decimal
+                        # Parsing hours
                         h_semana = round(data.get('horasSemanalesSegundos', 0) / 3600.0, 1)
                         h_total = round(data.get('horasTotalesSegundos', 0) / 3600.0, 1)
                         h_recup = round(data.get('horasRecuperacionSegundos', 0) / 3600.0, 1)
-                        
-                        embed.add_field(name="🕒 Horas Semanales", value=f"{h_semana}h", inline=True)
-                        embed.add_field(name="📈 Horas Totales", value=f"{h_total}h", inline=True)
-                        embed.add_field(name="🔄 Horas Recuperación", value=f"{h_recup}h", inline=True)
+                        h_base = round(data.get('horasBaseSegundos', 36*3600.0) / 3600.0, 1)
+                        tardanzas = data.get('tardanzasTotales', 0)
+                        reportes_list = data.get('reportes', [])
+
+                        h_falta_semana = max(0.0, 36.0 - h_semana) # límite de 36h pedido
+                        h_falta_total = max(0.0, h_base - h_total)
 
                         registros = data.get('ultimosRegistros', [])
-                        if not registros:
-                            embed.description = "No hay registros recientes."
+                        
+                        # Agrupar registros por día
+                        from collections import defaultdict
+                        historial_por_dia = defaultdict(list)
+                        for reg in registros:
+                            historial_por_dia[reg.get('fecha', 'Desconocido')].append(reg)
+                        
+                        fechas_ordenadas = list(historial_por_dia.keys())[:7] # últimos 7 días con registros
+                        
+                        historial_text = ""
+                        if not fechas_ordenadas:
+                            historial_text = "No hay registros recientes.\n"
                         else:
-                            # Sólo mostrar los últimos 7
-                            for reg in registros[:7]:
-                                fecha = reg.get('fecha', '')
-                                he = reg.get('horaEntrada', '—')
-                                hs = reg.get('horaSalida', '—')
-                                estado = reg.get('estado', '').upper()
-                                recup = " (Recuperación)" if reg.get('esRecuperacion') else ""
-                                
-                                # Si viene de Java es "HH:MM:SS" pero queremos algo más corto si se prefiere, aunque "HH:MM" es standard.
-                                # Ya viene truncado como "14:00" o "14:00:00" o "--:--".
-                                
-                                embed.add_field(
-                                    name=f"📅 {fecha} — {estado}{recup}",
-                                    value=f"Entrada: {he} | Salida: {hs}",
-                                    inline=False
-                                )
+                            for fecha in fechas_ordenadas:
+                                regs = historial_por_dia[fecha]
+                                historial_text += f"\n📅 **{fecha}**\n"
+                                for reg in regs:
+                                    he = reg.get('horaEntrada', '—') # Formato viene del java .toString() o --:--
+                                    if len(he) > 5: he = he[:5]      # Sólo HH:MM 
+                                    hs = reg.get('horaSalida', '—')
+                                    if len(hs) > 5: hs = hs[:5]
+                                    estado = reg.get('estado', '').upper()
+                                    recup = " (Recuperación)" if reg.get('esRecuperacion') else ""
+                                    historial_text += f"> {estado}{recup} | 🟢 {he} - 🔴 {hs}\n"
+                        
+                        # ----- MENSAJE 1: HISTORIAL DE DIAS -----
+                        embed_historial = Embed(
+                            title=f"📋 Historial de Asistencia - {data.get('nombreCompleto', 'Desconocido')}",
+                            color=Color.blue(),
+                            description=historial_text.strip()
+                        )
+                        await interaction.followup.send(embed=embed_historial, ephemeral=True)
 
-                        await interaction.followup.send(embed=embed, ephemeral=True)
+                        # ----- MENSAJE 2: RESUMEN SEMANAL -----
+                        embed_semanal = Embed(
+                            title="📆 Resumen Semanal (Meta: 36h)",
+                            color=Color.green()
+                        )
+                        embed_semanal.add_field(
+                            name="Horas Trabajadas",
+                            value=f"🔸 **Normal:** {h_semana}h\n🔸 **Recuperación:** {h_recup}h",
+                            inline=True
+                        )
+                        embed_semanal.add_field(
+                            name="Estado Semanal",
+                            value=f"🔻 **Falta para la meta:** {round(h_falta_semana, 1)}h",
+                            inline=True
+                        )
+                        await interaction.followup.send(embed=embed_semanal, ephemeral=True)
+
+                        # ----- MENSAJE 3: RESUMEN TOTAL / MENSUAL -----
+                        embed_total = Embed(
+                            title="📈 Resumen Histórico Total",
+                            color=Color.orange()
+                        )
+                        embed_total.add_field(
+                            name="Acumulado Global",
+                            value=f"� **Total Llevado:** {h_total}h\n�🔻 **Falta para concluir:** {round(h_falta_total, 1)}h",
+                            inline=True
+                        )
+                        embed_total.add_field(
+                            name="Incidencias",
+                            value=f"⚠️ **Tardanzas Totales:** {tardanzas}",
+                            inline=True
+                        )
+
+                        # Reportes en el tercer mensaje
+                        if reportes_list:
+                            resumen_reportes = defaultdict(list)
+                            for r in reportes_list:
+                                resumen_reportes[r.get('tipo', 'otros')].append(r.get('descripcion', 'Sin descripción'))
+                            
+                            reportes_text = f"**Total de reportes:** {len(reportes_list)}\n\n"
+                            
+                            for tipo, descs in resumen_reportes.items():
+                                reportes_text += f"▪️ **{tipo.upper()}** ({len(descs)}):\n"
+                                # Para no exceder de 1024 caracteres
+                                for d in set(descs):
+                                    linea = f"  - {d}\n"
+                                    if len(reportes_text) + len(linea) > 1000:
+                                        reportes_text += "  - ...y más\n"
+                                        break
+                                    reportes_text += linea
+                                if len(reportes_text) > 1000: break
+                                
+                            embed_total.add_field(name="🚨 Detalle de Reportes", value=reportes_text, inline=False)
+
+                        await interaction.followup.send(embed=embed_total, ephemeral=True)
+
                     elif response.status == 404:
                          await interaction.followup.send("📭 No tienes registros de asistencia o no estás registrado.", ephemeral=True)
                     else:
