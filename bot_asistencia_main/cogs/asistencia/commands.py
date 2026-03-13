@@ -135,10 +135,11 @@ class Asistencia(commands.GroupCog, name="asistencia"):
             # Crear reporte de tardanza automático
             query_reporte = """
             INSERT INTO reporte (practicante_id, descripcion, tipo, fecha)
-            VALUES ($1, $2, 'tardanza', $3)
+            VALUES ($1, $2, $3, $4)
             """
             desc_tardanza = f"Llegada tarde a las {hora_actual.strftime('%H:%M')} (estado: {estado})"
-            await db.execute_query(query_reporte, practicante_id, desc_tardanza, fecha_actual)
+            tipo_reporte = 'sobreHora' if estado == 'sobreHora' else 'tardanza'
+            await db.execute_query(query_reporte, practicante_id, desc_tardanza, tipo_reporte, fecha_actual)
 
             logging.info(f'Asistencia ({estado}) registrada para {interaction.user.display_name}')
 
@@ -345,13 +346,16 @@ class Asistencia(commands.GroupCog, name="asistencia"):
                         h_total = round(data.get('horasTotalesSegundos', 0) / 3600.0, 1)
                         h_recup_semana = round(data.get('horasRecuperacionSemanalesSegundos', 0) / 3600.0, 1)
                         h_recup_total = round(data.get('horasRecuperacionSegundos', 0) / 3600.0, 1)
-                        h_base = 576.0 # Meta total de horas forzado a 576h
-                        tardanzas = data.get('tardanzasTotales', 0)
+                        h_base = round(data.get('horasBaseSegundos', 576 * 3600) / 3600.0, 1)
+                        incid_tardanza = data.get('incidenciasTardanza', 0)
+                        incid_sobre_hora = data.get('incidenciasSobreHora', 0)
+                        incid_baneo = data.get('incidenciasBaneo', 0)
+                        incid_falta = data.get('incidenciasFalta', 0)
+                        incid_inasistencia = data.get('incidenciasInasistencia', 0)
                         reportes_list = data.get('reportes', [])
 
                         h_falta_semana = max(0.0, 36.0 - (h_semana + h_recup_semana)) # límite de 36h pedido
                         h_falta_total = max(0.0, h_base - (h_total + h_recup_total))
-                        
                         h_total_acumulado = round(h_total + h_recup_total, 1)
 
                         registros = data.get('ultimosRegistros', [])
@@ -378,8 +382,9 @@ class Asistencia(commands.GroupCog, name="asistencia"):
                                     if len(hs) > 5: hs = hs[:5]
                                     estado = reg.get('estado', '').upper()
                                     recup = " (Recuperación)" if reg.get('esRecuperacion') else ""
-                                    historial_text += f"> {estado}{recup} | 🟢 {he} - 🔴 {hs}\n"
-                        
+                                    solo_recup = " [Solo recup]" if reg.get('soloRecuperacion') else ""
+                                    historial_text += f"> {estado}{recup}{solo_recup} | 🟢 {he} - 🔴 {hs}\n"
+
                         # ----- MENSAJE 1: HISTORIAL DE DIAS -----
                         embed_historial = Embed(
                             title=f"📋 Historial de Asistencia - {data.get('nombreCompleto', 'Desconocido')}",
@@ -415,9 +420,16 @@ class Asistencia(commands.GroupCog, name="asistencia"):
                             value=f"🎯 **Meta Total:** {h_base}h\n🔸 **Total Llevado:** {h_total_acumulado}h\n🔻 **Falta para concluir:** {round(h_falta_total, 1)}h",
                             inline=True
                         )
+                        incidencias_text = (
+                            f"⏱️ Tardanza: {incid_tardanza}\n"
+                            f"🔴 Sobre hora: {incid_sobre_hora}\n"
+                            f"⛔ Baneos: {incid_baneo}\n"
+                            f"📌 Faltas: {incid_falta}\n"
+                            f"🚫 Inasistencias: {incid_inasistencia}"
+                        )
                         embed_total.add_field(
                             name="Incidencias",
-                            value=f"⚠️ **Tardanzas Totales:** {tardanzas}",
+                            value=incidencias_text,
                             inline=True
                         )
 

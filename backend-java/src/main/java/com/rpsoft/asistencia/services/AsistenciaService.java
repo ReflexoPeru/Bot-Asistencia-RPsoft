@@ -12,6 +12,10 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
 import java.util.List;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.HashSet;
+import java.util.Set;
 
 import com.rpsoft.asistencia.repositories.PracticanteRepository;
 import com.rpsoft.asistencia.repositories.RecuperacionRepository;
@@ -20,8 +24,6 @@ import com.rpsoft.asistencia.dtos.ResumenHistorialDto;
 import org.springframework.data.domain.PageRequest;
 import java.time.temporal.ChronoField;
 import java.time.DayOfWeek;
-import java.util.ArrayList;
-import java.util.Comparator;
 
 /**
  * Servicio para consultar registros de asistencia.
@@ -106,10 +108,15 @@ public class AsistenciaService {
         long horasTotales = asistenciaRepository.sumDuracionAprobadaSegundos(pId);
         long horasSemanales = asistenciaRepository.sumDuracionRangoSegundos(pId, inicioSemana, finSemana);
         long horasRecuperacion = recuperacionRepository.sumDuracionAprobadaSegundos(pId);
+        long horasRecuperacionSemanales = recuperacionRepository.sumDuracionRangoSegundos(pId, inicioSemana, finSemana);
 
         long horasBaseSegundos = 576 * 3600L;
-        long tardanzasTotales = asistenciaRepository.countByPracticanteIdAndEstadoIn(pId,
-                List.of("tarde", "sobreHora"));
+
+        long incidenciasTardanza = reporteRepository.countByPracticanteIdAndTipo(pId, "tardanza");
+        long incidenciasSobreHora = reporteRepository.countByPracticanteIdAndTipo(pId, "sobreHora");
+        long incidenciasBaneo = reporteRepository.countByPracticanteIdAndTipo(pId, "baneo");
+        long incidenciasFalta = reporteRepository.countByPracticanteIdAndTipo(pId, "falta");
+        long incidenciasInasistencia = reporteRepository.countByPracticanteIdAndTipo(pId, "inasistencia");
 
         List<ResumenHistorialDto.ReporteResumenDto> reportes = reporteRepository
                 .findByPracticanteId(pId, PageRequest.of(0, 20))
@@ -126,12 +133,14 @@ public class AsistenciaService {
                 PageRequest.of(0, 5));
 
         List<ResumenHistorialDto.RegistroDiarioDto> registros = new ArrayList<>();
+        Set<LocalDate> fechasConAsistencia = new HashSet<>();
 
         for (AsistenciaEntity a : uA) {
             long duracion = 0;
             if (a.getHoraSalida() != null && a.getHoraEntrada() != null) {
                 duracion = java.time.Duration.between(a.getHoraEntrada(), a.getHoraSalida()).getSeconds();
             }
+            fechasConAsistencia.add(a.getFecha());
             registros.add(ResumenHistorialDto.RegistroDiarioDto.builder()
                     .fecha(a.getFecha())
                     .diaSemana(obtenerDiaSemana(a.getFecha()))
@@ -139,6 +148,7 @@ public class AsistenciaService {
                     .horaSalida(a.getHoraSalida() != null ? a.getHoraSalida().toString() : "--:--")
                     .estado(a.getEstado())
                     .esRecuperacion(false)
+                    .soloRecuperacion(false)
                     .duracionSegundos(duracion)
                     .build());
         }
@@ -148,6 +158,7 @@ public class AsistenciaService {
             if (r.getHoraSalida() != null && r.getHoraEntrada() != null) {
                 duracion = java.time.Duration.between(r.getHoraEntrada(), r.getHoraSalida()).getSeconds();
             }
+            boolean soloRecuperacion = !fechasConAsistencia.contains(r.getFecha());
             registros.add(ResumenHistorialDto.RegistroDiarioDto.builder()
                     .fecha(r.getFecha())
                     .diaSemana(obtenerDiaSemana(r.getFecha()))
@@ -155,6 +166,7 @@ public class AsistenciaService {
                     .horaSalida(r.getHoraSalida() != null ? r.getHoraSalida().toString() : "--:--")
                     .estado(r.getEstado())
                     .esRecuperacion(true)
+                    .soloRecuperacion(soloRecuperacion)
                     .duracionSegundos(duracion)
                     .build());
         }
@@ -171,8 +183,13 @@ public class AsistenciaService {
                 .horasSemanalesSegundos(horasSemanales)
                 .horasTotalesSegundos(horasTotales)
                 .horasRecuperacionSegundos(horasRecuperacion)
+                .horasRecuperacionSemanalesSegundos(horasRecuperacionSemanales)
                 .horasBaseSegundos(horasBaseSegundos)
-                .tardanzasTotales(tardanzasTotales)
+                .incidenciasTardanza(incidenciasTardanza)
+                .incidenciasSobreHora(incidenciasSobreHora)
+                .incidenciasBaneo(incidenciasBaneo)
+                .incidenciasFalta(incidenciasFalta)
+                .incidenciasInasistencia(incidenciasInasistencia)
                 .reportes(reportes)
                 .ultimosRegistros(registros)
                 .build();

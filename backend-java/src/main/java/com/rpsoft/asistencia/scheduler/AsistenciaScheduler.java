@@ -227,7 +227,7 @@ public class AsistenciaScheduler {
      * antes de asentar los cambios en la base de datos.
      * </p>
      */
-    @Scheduled(cron = "0 22 20 * * MON-SAT", zone = "America/Lima")
+    @Scheduled(cron = "0 22 20 * * MON-SUN", zone = "America/Lima")
     @Transactional
     public void autoCierreRecuperacion() {
         LocalDate hoy = LocalDate.now(LIMA_ZONE);
@@ -253,6 +253,11 @@ public class AsistenciaScheduler {
             reporte.setFecha(hoy);
             reporte.setCreatedAt(nowInfo);
             reporteRepository.save(reporte);
+
+            botNotificationService.sendDm(
+                    rec.getPracticante().getIdDiscord(),
+                    "⚠️ Se cerró automáticamente tu sesión de recuperación a las 20:00." +
+                            " Recuerda cerrar tus horas antes de las 20:20 para evitar incidencias.");
 
             count++;
         }

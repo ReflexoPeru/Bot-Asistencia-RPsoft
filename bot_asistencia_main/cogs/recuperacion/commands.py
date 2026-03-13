@@ -27,16 +27,8 @@ class Recuperacion(commands.GroupCog, name="recuperacion"):
     # ──────────────────────────────────────────────
     @app_commands.command(name='entrada', description="Registrar entrada de recuperación")
     async def entrada(self, interaction: discord.Interaction):
-        from utils import es_domingo, LIMA_TZ
+        from utils import LIMA_TZ
         await interaction.response.defer(ephemeral=True)
-
-        # 1. Bloquear domingos
-        if es_domingo():
-            await interaction.followup.send(
-                "🚫 No se pueden registrar horas de recuperación los domingos.",
-                ephemeral=True
-            )
-            return
 
         if not await canal_permitido(interaction):
             return
@@ -138,15 +130,8 @@ class Recuperacion(commands.GroupCog, name="recuperacion"):
     # ──────────────────────────────────────────────
     @app_commands.command(name='salida', description="Registrar salida de recuperación")
     async def salida(self, interaction: discord.Interaction):
-        from utils import es_domingo, LIMA_TZ
+        from utils import LIMA_TZ
         await interaction.response.defer(ephemeral=True)
-
-        if es_domingo():
-            await interaction.followup.send(
-                "🚫 No se pueden registrar horas de recuperación los domingos.",
-                ephemeral=True
-            )
-            return
 
         if not await canal_permitido(interaction):
             return

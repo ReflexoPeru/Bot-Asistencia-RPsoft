@@ -26,4 +26,6 @@ public interface ReporteRepository extends JpaRepository<ReporteEntity, Integer>
     List<ReporteEntity> findByTipoAndFecha(String tipo, LocalDate fecha);
 
     long countByTipoAndFecha(String tipo, LocalDate fecha);
+
+    long countByPracticanteIdAndTipo(Integer practicanteId, String tipo);
 }

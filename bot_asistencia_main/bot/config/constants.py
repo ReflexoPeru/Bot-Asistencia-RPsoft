@@ -17,8 +17,8 @@ HORA_SALIDA_OFICIAL = time(14, 0)            # 2:00 PM — hora oficial de salid
 HORA_GRACIA_SALIDA = time(14, 15)            # 2:15 PM — gracia para marcar salida
 HORARIO_SALIDA_MINIMA = time(12, 0)          # 12:00 PM — mínimo para marcar salida temprana
 
-# Horarios de recuperación
-HORA_INICIO_RECUPERACION = time(14, 50)      # 2:50 PM
+# Horarios de recuperación (aplican también en domingo)
+HORA_INICIO_RECUPERACION = time(7, 50)       # 7:50 AM
 HORA_FIN_RECUPERACION = time(20, 0)          # 8:00 PM
 HORA_CIERRE_REAL = time(20, 0)               # Hora límite real (sin gracia)
 HORA_GRACIA_RECUPERACION = time(20, 20)      # 8:20 PM — gracia para marcar salida recup
@@ -41,7 +41,9 @@ TIPOS_REPORTE = (
     'justificacion',
     'baneo',
     'tardanza',
+    'sobreHora',
     'falta',
+    'inasistencia',
     'afk_salida',
     'retiro',
 )
