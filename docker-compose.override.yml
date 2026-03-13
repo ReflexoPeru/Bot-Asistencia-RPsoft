@@ -1,18 +1,19 @@
 services:
   db:
-    image: mariadb:10.6
-    container_name: mysql_db
+    image: postgres:16-alpine
+    container_name: postgres_db
     restart: always
     privileged: true
     environment:
-      MYSQL_DATABASE: ${DB_NAME}
-      MYSQL_USER: ${DB_USER}
-      MYSQL_PASSWORD: ${DB_PASSWORD}
-      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      POSTGRES_DB: ${DB_NAME}
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    ports:
+      - "5432:5432"
     volumes:
-      - db_data:/var/lib/mysql
+      - pg_data:/var/lib/postgresql/data
     healthcheck:
-      test: "mysqladmin ping -h localhost -u root -p${MYSQL_ROOT_PASSWORD}"
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -28,19 +29,20 @@ services:
       - ./bot_asistencia_main:/app
       - ./bot_asistencia_main/credentials.json:/app/credentials.json
     ports:
-      - "8080:10000"
+      - "8081:10000"
     environment:
       - DISCORD_TOKEN=${DISCORD_TOKEN}
-      - DB_HOST=db # ← nombre del servicio, no localhost
+      - DB_HOST=db
       - DB_NAME=${DB_NAME}
       - DB_USER=${DB_USER}
       - DB_PASSWORD=${DB_PASSWORD}
-      - DB_PORT=3306
+      - DB_PORT=5432
       - TZ=America/Lima
       - GOOGLE_SHEET_NAME=${GOOGLE_SHEET_NAME}
     depends_on:
       db:
-        condition: service_healthy # ← espera a que MariaDB esté lista
+        condition: service_healthy
 
 volumes:
-  db_data:
+  pg_data:
+  db_data:  # Mantener volumen MariaDB anterior hasta finalizar migración

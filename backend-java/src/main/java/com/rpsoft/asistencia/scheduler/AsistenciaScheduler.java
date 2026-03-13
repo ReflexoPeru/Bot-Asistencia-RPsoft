@@ -99,12 +99,12 @@ public class AsistenciaScheduler {
     private boolean tieneClaseHoy(PracticanteEntity practicante, LocalDate fecha) {
         DayOfWeek dia = fecha.getDayOfWeek();
         return switch (dia) {
-            case MONDAY -> practicante.getClaseLunes();
-            case TUESDAY -> practicante.getClaseMartes();
-            case WEDNESDAY -> practicante.getClaseMiercoles();
-            case THURSDAY -> practicante.getClaseJueves();
-            case FRIDAY -> practicante.getClaseViernes();
-            case SATURDAY -> practicante.getClaseSabado();
+            case MONDAY -> Boolean.TRUE.equals(practicante.getClaseLunes());
+            case TUESDAY -> Boolean.TRUE.equals(practicante.getClaseMartes());
+            case WEDNESDAY -> Boolean.TRUE.equals(practicante.getClaseMiercoles());
+            case THURSDAY -> Boolean.TRUE.equals(practicante.getClaseJueves());
+            case FRIDAY -> Boolean.TRUE.equals(practicante.getClaseViernes());
+            case SATURDAY -> Boolean.TRUE.equals(practicante.getClaseSabado());
             default -> false;
         };
     }

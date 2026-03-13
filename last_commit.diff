@@ -1,0 +1,312 @@
+commit 0e3841bb41bb50ebd58ce9e4524131303e9b6c45
+Author: Jhefry09 <jhefrycabanillas@gmail.com>
+Date:   Fri Mar 13 08:31:56 2026 -0500
+
+    feat:  backend services, and removing old migration scripts.
+
+diff --git a/backend-java/src/main/java/com/rpsoft/asistencia/repositories/AsistenciaRepository.java b/backend-java/src/main/java/com/rpsoft/asistencia/repositories/AsistenciaRepository.java
+index 21ee4c3..9d6a4e8 100644
+--- a/backend-java/src/main/java/com/rpsoft/asistencia/repositories/AsistenciaRepository.java
++++ b/backend-java/src/main/java/com/rpsoft/asistencia/repositories/AsistenciaRepository.java
+@@ -52,4 +52,6 @@ public interface AsistenciaRepository extends JpaRepository<AsistenciaEntity, In
+         @Query("SELECT a FROM AsistenciaEntity a WHERE a.practicante.id = :practicanteId ORDER BY a.fecha DESC")
+         List<AsistenciaEntity> findUltimosRegistros(@Param("practicanteId") Integer practicanteId,
+                         org.springframework.data.domain.Pageable pageable);
++
++        List<AsistenciaEntity> findTop3ByPracticanteIdOrderByFechaDesc(Integer practicanteId);
+ }
+diff --git a/backend-java/src/main/java/com/rpsoft/asistencia/scheduler/AsistenciaScheduler.java b/backend-java/src/main/java/com/rpsoft/asistencia/scheduler/AsistenciaScheduler.java
+index 816dbb2..92f5318 100644
+--- a/backend-java/src/main/java/com/rpsoft/asistencia/scheduler/AsistenciaScheduler.java
++++ b/backend-java/src/main/java/com/rpsoft/asistencia/scheduler/AsistenciaScheduler.java
+@@ -1,9 +1,11 @@
+ package com.rpsoft.asistencia.scheduler;
+ 
+ import com.rpsoft.asistencia.entities.AsistenciaEntity;
++import com.rpsoft.asistencia.entities.PracticanteEntity;
+ import com.rpsoft.asistencia.entities.RecuperacionEntity;
+ import com.rpsoft.asistencia.entities.ReporteEntity;
+ import com.rpsoft.asistencia.repositories.AsistenciaRepository;
++import com.rpsoft.asistencia.repositories.PracticanteRepository;
+ import com.rpsoft.asistencia.repositories.RecuperacionRepository;
+ import com.rpsoft.asistencia.repositories.ReporteRepository;
+ import com.rpsoft.asistencia.services.BotNotificationService;
+@@ -15,23 +17,25 @@ import org.springframework.scheduling.annotation.Scheduled;
+ import org.springframework.stereotype.Component;
+ import org.springframework.transaction.annotation.Transactional;
+ 
++import java.time.DayOfWeek;
+ import java.time.LocalDate;
+ import java.time.LocalDateTime;
+ import java.time.LocalTime;
+ import java.time.ZoneId;
+ import java.time.temporal.ChronoUnit;
+ import java.util.List;
++import java.util.Objects;
+ 
+ /**
+  * Tareas programadas para control automático de asistencia.
+  * <p>
+- * Contiene los jobs de auto-salida regular y auto-cierre de recuperaciones,
+- * notificando al canal de Discord correspondiente.
++ * Contiene los jobs de auto-salida, auto-cierre de recuperaciones y la
++ * verificación de faltas diarias con retiro automático.
+  * </p>
+  *
+  * @author RPSoft Team
+- * @version 1.0
+- * @since 2026-03-07
++ * @version 1.1
++ * @since 2026-03-11
+  * @see BotNotificationService
+  */
+ @Component
+@@ -39,10 +43,12 @@ import java.util.List;
+ public class AsistenciaScheduler {
+ 
+     private static final Logger log = LoggerFactory.getLogger(AsistenciaScheduler.class);
++    private static final ZoneId LIMA_ZONE = ZoneId.of("America/Lima");
+ 
+     private final AsistenciaRepository asistenciaRepository;
+     private final RecuperacionRepository recuperacionRepository;
+     private final ReporteRepository reporteRepository;
++    private final PracticanteRepository practicanteRepository;
+     private final BotNotificationService botNotificationService;
+ 
+     @Value("${discord.bot.channels.asistencia:}")
+@@ -51,6 +57,113 @@ public class AsistenciaScheduler {
+     private static final LocalTime HORA_SALIDA_OFICIAL = LocalTime.of(14, 0);
+     private static final LocalTime HORA_FIN_RECUPERACION = LocalTime.of(20, 0);
+ 
++    /**
++     * Verifica diariamente las faltas de asistencia a las 14:20 (Lima).
++     * <p>
++     * Ignora los domingos. Para cada practicante activo, comprueba si ha
++     * registrado asistencia. Si no lo ha hecho y no tiene clases, le asigna
++     * una falta, le notifica y verifica si debe ser retirado por acumulación
++     * de 3 faltas consecutivas.
++     * </p>
++     */
++    @Scheduled(cron = "0 20 14 * * MON-SAT", zone = "America/Lima")
++    @Transactional
++    public void verificarFaltasDiarias() {
++        LocalDate hoy = LocalDate.now(LIMA_ZONE);
++        log.info("[Scheduler] Iniciando verificación de faltas para el día {}.", hoy);
++
++        List<PracticanteEntity> activos = practicanteRepository.findByEstado("activo");
++        log.info("[Scheduler] Se encontraron {} practicantes activos.", activos.size());
++
++        for (PracticanteEntity practicante : activos) {
++            procesarPracticante(practicante, hoy);
++        }
++        log.info("[Scheduler] Finalizada verificación de faltas para el día {}.", hoy);
++    }
++
++    private void procesarPracticante(PracticanteEntity practicante, LocalDate hoy) {
++        boolean yaMarcoAsistencia = asistenciaRepository.findByPracticanteIdAndFecha(practicante.getId(), hoy)
++                .isPresent();
++        if (yaMarcoAsistencia) {
++            return;
++        }
++
++        if (tieneClaseHoy(practicante, hoy)) {
++            crearAsistenciaClases(practicante, hoy);
++        } else {
++            registrarFalta(practicante, hoy);
++            verificarRetiroPorFaltas(practicante);
++        }
++    }
++
++    private boolean tieneClaseHoy(PracticanteEntity practicante, LocalDate fecha) {
++        DayOfWeek dia = fecha.getDayOfWeek();
++        return switch (dia) {
++            case MONDAY -> practicante.getClaseLunes();
++            case TUESDAY -> practicante.getClaseMartes();
++            case WEDNESDAY -> practicante.getClaseMiercoles();
++            case THURSDAY -> practicante.getClaseJueves();
++            case FRIDAY -> practicante.getClaseViernes();
++            case SATURDAY -> practicante.getClaseSabado();
++            default -> false;
++        };
++    }
++
++    private void crearAsistenciaClases(PracticanteEntity practicante, LocalDate hoy) {
++        AsistenciaEntity asistenciaClases = new AsistenciaEntity();
++        asistenciaClases.setPracticante(practicante);
++        asistenciaClases.setFecha(hoy);
++        asistenciaClases.setEstado("clases");
++        asistenciaRepository.save(asistenciaClases);
++        log.info("[Scheduler] Creado registro de 'clases' para practicante ID: {}", practicante.getId());
++    }
++
++    private void registrarFalta(PracticanteEntity practicante, LocalDate hoy) {
++        AsistenciaEntity falta = new AsistenciaEntity();
++        falta.setPracticante(practicante);
++        falta.setFecha(hoy);
++        falta.setEstado("falto");
++        asistenciaRepository.save(falta);
++
++        ReporteEntity reporte = new ReporteEntity();
++        reporte.setPracticante(practicante);
++        reporte.setTipo("inasistencia");
++        reporte.setDescripcion("Falta automática por no registrar asistencia.");
++        reporte.setFecha(hoy);
++        reporte.setCreatedAt(LocalDateTime.now(LIMA_ZONE));
++        reporteRepository.save(reporte);
++
++        log.warn("[Scheduler] Registrada FALTA para practicante ID: {}. Se enviará notificación.", practicante.getId());
++        botNotificationService.sendDm(
++                practicante.getIdDiscord(),
++                "⚠️ **Tienes una falta por no registrar tu asistencia hoy.**\nRecuerda que acumular 3 faltas consecutivas es causal de retiro.");
++    }
++
++    private void verificarRetiroPorFaltas(PracticanteEntity practicante) {
++        List<AsistenciaEntity> ultimasAsistencias = asistenciaRepository
++                .findTop3ByPracticanteIdOrderByFechaDesc(practicante.getId());
++
++        if (ultimasAsistencias.size() < 3) {
++            return;
++        }
++
++        boolean tresFaltasConsecutivas = ultimasAsistencias.stream()
++                .allMatch(a -> Objects.equals(a.getEstado(), "falto"));
++
++        if (tresFaltasConsecutivas) {
++            practicante.setEstado("retirado");
++            practicante.setFechaRetiro(LocalDate.now(LIMA_ZONE));
++            practicante.setMotivoRetiro("Retiro automático por 3 faltas consecutivas.");
++            practicanteRepository.save(practicante);
++
++            log.error("[Scheduler] RETIRO AUTOMÁTICO del practicante ID: {} por 3 faltas consecutivas.",
++                    practicante.getId());
++            botNotificationService.sendDm(
++                    practicante.getIdDiscord(),
++                    "❌ **Has sido retirado del programa de practicantes.**\n**Motivo:** Acumulación de 3 faltas consecutivas.");
++        }
++    }
++
+     /**
+      * Auto-salida de asistencia regular a las 14:17 de lunes a sábado.
+      * <p>
+@@ -64,8 +177,8 @@ public class AsistenciaScheduler {
+     @Scheduled(cron = "0 17 14 * * MON-SAT", zone = "America/Lima")
+     @Transactional
+     public void autoSalidaAsistencia() {
+-        LocalDate hoy = LocalDate.now(ZoneId.of("America/Lima"));
+-        LocalDateTime nowInfo = LocalDateTime.now(ZoneId.of("America/Lima")).truncatedTo(ChronoUnit.SECONDS);
++        LocalDate hoy = LocalDate.now(LIMA_ZONE);
++        LocalDateTime nowInfo = LocalDateTime.now(LIMA_ZONE).truncatedTo(ChronoUnit.SECONDS);
+         List<AsistenciaEntity> sinSalida = asistenciaRepository.findSinSalidaByFecha(hoy);
+ 
+         if (sinSalida.isEmpty()) {
+@@ -112,8 +225,8 @@ public class AsistenciaScheduler {
+     @Scheduled(cron = "0 22 20 * * MON-SAT", zone = "America/Lima")
+     @Transactional
+     public void autoCierreRecuperacion() {
+-        LocalDate hoy = LocalDate.now(ZoneId.of("America/Lima"));
+-        LocalDateTime nowInfo = LocalDateTime.now(ZoneId.of("America/Lima")).truncatedTo(ChronoUnit.SECONDS);
++        LocalDate hoy = LocalDate.now(LIMA_ZONE);
++        LocalDateTime nowInfo = LocalDateTime.now(LIMA_ZONE).truncatedTo(ChronoUnit.SECONDS);
+         List<RecuperacionEntity> abiertas = recuperacionRepository.findByFechaAndEstado(hoy, "abierto");
+ 
+         if (abiertas.isEmpty()) {
+diff --git a/backend-java/src/main/java/com/rpsoft/asistencia/services/BotNotificationService.java b/backend-java/src/main/java/com/rpsoft/asistencia/services/BotNotificationService.java
+index 94c45b1..04202d1 100644
+--- a/backend-java/src/main/java/com/rpsoft/asistencia/services/BotNotificationService.java
++++ b/backend-java/src/main/java/com/rpsoft/asistencia/services/BotNotificationService.java
+@@ -57,4 +57,27 @@ public class BotNotificationService {
+             return false;
+         }
+     }
++
++    /**
++     * Envía un mensaje directo (DM) a un usuario de Discord a través del bot Python.
++     *
++     * @param userId  ID del usuario de Discord
++     * @param content contenido del mensaje
++     * @return true si se envió correctamente, false en caso de error
++     */
++    public boolean sendDm(Long userId, String content) {
++        try {
++            restClient.post()
++                    .uri("/api/internal/send-dm")
++                    .contentType(MediaType.APPLICATION_JSON)
++                    .body(Map.of("user_id", userId, "content", content))
++                    .retrieve()
++                    .toBodilessEntity();
++            log.info("Mensaje DM enviado al usuario {}", userId);
++            return true;
++        } catch (Exception e) {
++            log.error("Error al enviar DM al bot para el usuario {}: {}", userId, e.getMessage());
++            return false;
++        }
++    }
+ }
+diff --git a/bot_asistencia_main/bot.py b/bot_asistencia_main/bot.py
+index a9c68df..a694fa0 100644
+--- a/bot_asistencia_main/bot.py
++++ b/bot_asistencia_main/bot.py
+@@ -108,7 +108,7 @@ async def main():
+ 
+     # Iniciar servidor web
+     from web.server import start_web_server
+-    await start_web_server()
++    await start_web_server(bot)
+ 
+     try:
+         await bot.start(TOKEN)
+diff --git a/bot_asistencia_main/web/server.py b/bot_asistencia_main/web/server.py
+index 9b93b75..62c61f0 100644
+--- a/bot_asistencia_main/web/server.py
++++ b/bot_asistencia_main/web/server.py
+@@ -157,13 +157,48 @@ async def api_fechas_handler(request):
+         return web.json_response({"error": str(e)}, status=500)
+ 
+ 
+-async def start_web_server():
+-    """Inicia el servidor web."""
++async def api_send_dm_handler(request):
++    """
++    Handler para enviar mensajes directos (DM) a usuarios de Discord.
++    Espera un POST con JSON: {"user_id": <id>, "content": "mensaje"}
++    """
++    bot = request.app['bot']
++    try:
++        data = await request.json()
++        user_id = data.get('user_id')
++        content = data.get('content')
++
++        if not user_id or not content:
++            return web.json_response({'error': 'user_id y content son requeridos'}, status=400)
++
++        user = bot.get_user(int(user_id))
++        if not user:
++            user = await bot.fetch_user(int(user_id))
++
++        if user:
++            await user.send(content)
++            logging.info(f"DM enviado a usuario {user_id}")
++            return web.json_response({'status': 'ok'}, status=200)
++        else:
++            logging.error(f"No se pudo encontrar al usuario con ID {user_id}")
++            return web.json_response({'error': 'Usuario no encontrado'}, status=404)
++
++    except Exception as e:
++        logging.error(f"Error en api_send_dm_handler: {e}")
++        return web.json_response({'error': 'Error interno del servidor'}, status=500)
++
++
++async def start_web_server(bot):
++    """Inicia el servidor web y le adjunta la instancia del bot."""
+     app = web.Application()
++    app['bot'] = bot
++
+     app.router.add_get("/health", health_check_handler)
+     app.router.add_get("/", dashboard_handler)
+     app.router.add_get("/api/asistencia", api_asistencia_handler)
+     app.router.add_get("/api/fechas", api_fechas_handler)
++    app.router.add_post("/api/internal/send-dm", api_send_dm_handler)
++
+     runner = web.AppRunner(app)
+     await runner.setup()
+     port = int(os.getenv("PORT", 10000))
