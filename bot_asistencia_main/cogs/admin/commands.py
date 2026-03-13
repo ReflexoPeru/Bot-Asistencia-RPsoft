@@ -772,6 +772,31 @@ class Admin(commands.GroupCog, name="admin"):
             logging.error(f"Error llamando al API de historial admin para {discord_id}: {e}")
             await interaction.followup.send("❌ Hubo un error al contactar con el servidor.", ephemeral=True)
 
+    @asistencia_historial.autocomplete('usuario')
+    async def asistencia_historial_autocomplete(self, interaction: discord.Interaction, current: str):
+        term = current.strip()
+        if not term:
+            term = ""
+
+        rows = await db.fetch_all(
+            """
+            SELECT id_discord, nombre_completo
+            FROM practicante
+            WHERE LOWER(nombre_completo) LIKE LOWER($1)
+               OR CAST(id_discord AS TEXT) LIKE $1
+            ORDER BY estado = 'activo' DESC, nombre_completo
+            LIMIT 25
+            """,
+            f"%{term}%",
+        )
+
+        opciones = []
+        for r in rows:
+            nombre = r['nombre_completo']
+            did = str(r['id_discord'])
+            opciones.append(app_commands.Choice(name=f"{nombre} ({did})", value=did))
+        return opciones
+
 
 async def setup(bot):
     await bot.add_cog(Admin(bot))
