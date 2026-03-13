@@ -339,6 +339,14 @@ class ScheduledTasks(commands.Cog):
         ORDER BY a.hora_entrada
         """, fecha_actual)
 
+        # 4. Faltas
+        faltas = await db.fetch_all("""
+        SELECT p.nombre_completo, a.hora_entrada
+        FROM asistencia a JOIN practicante p ON a.practicante_id = p.id
+        WHERE a.fecha = $1 AND a.estado = 'falto'
+        ORDER BY p.nombre_completo
+        """, fecha_actual)
+
         def format_hora(t):
             if t is None:
                 return "---"
@@ -386,9 +394,20 @@ class ScheduledTasks(commands.Cog):
         )
         agregar_lista_paginada(embed_rojo, fuera)
 
+        embed_gris = discord.Embed(
+            title=f"❌ Faltas - {fecha_actual.strftime('%d/%m/%Y')}",
+            description=f"Practicantes que no marcaron asistencia ({len(faltas)})",
+            color=discord.Color.dark_grey()
+        )
+        agregar_lista_paginada(embed_gris, faltas)
+
+        # Solo enviamos aquellos embeds que tengan registros (opcional, o todos como estaban antes)
+        # El diseño anterior mandaba todo aunque estuviera en 0.
+        embeds_to_send = [embed_verde, embed_naranja, embed_rojo, embed_gris]
+        
         await canal.send(
             content=f"📊 **Registro Horario Automático** — {hora_actual}",
-            embeds=[embed_verde, embed_naranja, embed_rojo]
+            embeds=embeds_to_send
         )
         logging.info(f"✅ Registro horario automático enviado a las {hora_actual}")
 
