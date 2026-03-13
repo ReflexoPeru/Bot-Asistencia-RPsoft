@@ -108,7 +108,7 @@ async def main():
 
     # Iniciar servidor web
     from web.server import start_web_server
-    await start_web_server()
+    await start_web_server(bot)
 
     try:
         await bot.start(TOKEN)

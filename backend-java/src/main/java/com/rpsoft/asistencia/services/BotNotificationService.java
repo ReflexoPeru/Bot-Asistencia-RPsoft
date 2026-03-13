@@ -57,4 +57,27 @@ public class BotNotificationService {
             return false;
         }
     }
+
+    /**
+     * Envía un mensaje directo (DM) a un usuario de Discord a través del bot Python.
+     *
+     * @param userId  ID del usuario de Discord
+     * @param content contenido del mensaje
+     * @return true si se envió correctamente, false en caso de error
+     */
+    public boolean sendDm(Long userId, String content) {
+        try {
+            restClient.post()
+                    .uri("/api/internal/send-dm")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body(Map.of("user_id", userId, "content", content))
+                    .retrieve()
+                    .toBodilessEntity();
+            log.info("Mensaje DM enviado al usuario {}", userId);
+            return true;
+        } catch (Exception e) {
+            log.error("Error al enviar DM al bot para el usuario {}: {}", userId, e.getMessage());
+            return false;
+        }
+    }
 }

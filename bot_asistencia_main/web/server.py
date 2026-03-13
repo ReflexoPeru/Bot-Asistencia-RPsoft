@@ -157,13 +157,48 @@ async def api_fechas_handler(request):
         return web.json_response({"error": str(e)}, status=500)
 
 
-async def start_web_server():
-    """Inicia el servidor web."""
+async def api_send_dm_handler(request):
+    """
+    Handler para enviar mensajes directos (DM) a usuarios de Discord.
+    Espera un POST con JSON: {"user_id": <id>, "content": "mensaje"}
+    """
+    bot = request.app['bot']
+    try:
+        data = await request.json()
+        user_id = data.get('user_id')
+        content = data.get('content')
+
+        if not user_id or not content:
+            return web.json_response({'error': 'user_id y content son requeridos'}, status=400)
+
+        user = bot.get_user(int(user_id))
+        if not user:
+            user = await bot.fetch_user(int(user_id))
+
+        if user:
+            await user.send(content)
+            logging.info(f"DM enviado a usuario {user_id}")
+            return web.json_response({'status': 'ok'}, status=200)
+        else:
+            logging.error(f"No se pudo encontrar al usuario con ID {user_id}")
+            return web.json_response({'error': 'Usuario no encontrado'}, status=404)
+
+    except Exception as e:
+        logging.error(f"Error en api_send_dm_handler: {e}")
+        return web.json_response({'error': 'Error interno del servidor'}, status=500)
+
+
+async def start_web_server(bot):
+    """Inicia el servidor web y le adjunta la instancia del bot."""
     app = web.Application()
+    app['bot'] = bot
+
     app.router.add_get("/health", health_check_handler)
     app.router.add_get("/", dashboard_handler)
     app.router.add_get("/api/asistencia", api_asistencia_handler)
     app.router.add_get("/api/fechas", api_fechas_handler)
+    app.router.add_post("/api/internal/send-dm", api_send_dm_handler)
+
     runner = web.AppRunner(app)
     await runner.setup()
     port = int(os.getenv("PORT", 10000))

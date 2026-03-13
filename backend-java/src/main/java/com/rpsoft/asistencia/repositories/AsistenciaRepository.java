@@ -52,4 +52,6 @@ public interface AsistenciaRepository extends JpaRepository<AsistenciaEntity, In
         @Query("SELECT a FROM AsistenciaEntity a WHERE a.practicante.id = :practicanteId ORDER BY a.fecha DESC")
         List<AsistenciaEntity> findUltimosRegistros(@Param("practicanteId") Integer practicanteId,
                         org.springframework.data.domain.Pageable pageable);
+
+        List<AsistenciaEntity> findTop3ByPracticanteIdOrderByFechaDesc(Integer practicanteId);
 }
