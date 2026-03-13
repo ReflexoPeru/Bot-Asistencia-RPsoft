@@ -59,7 +59,8 @@ public class BotNotificationService {
     }
 
     /**
-     * Envía un mensaje directo (DM) a un usuario de Discord a través del bot Python.
+     * Envía un mensaje directo (DM) a un usuario de Discord a través del bot
+     * Python.
      *
      * @param userId  ID del usuario de Discord
      * @param content contenido del mensaje

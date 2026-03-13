@@ -188,6 +188,40 @@ async def api_send_dm_handler(request):
         return web.json_response({'error': 'Error interno del servidor'}, status=500)
 
 
+async def api_send_message_handler(request):
+    """
+    Handler para enviar mensajes a canales de Discord.
+    Espera un POST con JSON: {"channel_id": <id>, "content": "mensaje"}
+    """
+    bot = request.app['bot']
+    try:
+        data = await request.json()
+        channel_id = data.get('channel_id')
+        content = data.get('content')
+
+        if not channel_id or not content:
+            return web.json_response({'error': 'channel_id y content son requeridos'}, status=400)
+
+        channel = bot.get_channel(int(channel_id))
+        if not channel:
+            try:
+                channel = await bot.fetch_channel(int(channel_id))
+            except Exception:
+                pass
+
+        if channel:
+            await channel.send(content)
+            logging.info(f"Mensaje enviado al canal {channel_id}")
+            return web.json_response({'status': 'ok'}, status=200)
+        else:
+            logging.error(f"No se pudo encontrar el canal con ID {channel_id}")
+            return web.json_response({'error': 'Canal no encontrado'}, status=404)
+
+    except Exception as e:
+        logging.error(f"Error en api_send_message_handler: {e}")
+        return web.json_response({'error': 'Error interno del servidor'}, status=500)
+
+
 async def start_web_server(bot):
     """Inicia el servidor web y le adjunta la instancia del bot."""
     app = web.Application()
@@ -198,6 +232,7 @@ async def start_web_server(bot):
     app.router.add_get("/api/asistencia", api_asistencia_handler)
     app.router.add_get("/api/fechas", api_fechas_handler)
     app.router.add_post("/api/internal/send-dm", api_send_dm_handler)
+    app.router.add_post("/api/internal/send-message", api_send_message_handler)
 
     runner = web.AppRunner(app)
     await runner.setup()

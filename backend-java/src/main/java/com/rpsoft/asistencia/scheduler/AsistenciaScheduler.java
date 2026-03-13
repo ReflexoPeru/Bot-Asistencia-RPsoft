@@ -58,7 +58,7 @@ public class AsistenciaScheduler {
     private static final LocalTime HORA_FIN_RECUPERACION = LocalTime.of(20, 0);
 
     /**
-     * Verifica diariamente las faltas de asistencia a las 14:20 (Lima).
+     * Verifica diariamente las faltas de asistencia a las 11:00 AM (Lima).
      * <p>
      * Ignora los domingos. Para cada practicante activo, comprueba si ha
      * registrado asistencia. Si no lo ha hecho y no tiene clases, le asigna
@@ -66,7 +66,7 @@ public class AsistenciaScheduler {
      * de 3 faltas consecutivas.
      * </p>
      */
-    @Scheduled(cron = "0 20 14 * * MON-SAT", zone = "America/Lima")
+    @Scheduled(cron = "0 0 11 * * MON-SAT", zone = "America/Lima")
     @Transactional
     public void verificarFaltasDiarias() {
         LocalDate hoy = LocalDate.now(LIMA_ZONE);
@@ -161,6 +161,11 @@ public class AsistenciaScheduler {
             botNotificationService.sendDm(
                     practicante.getIdDiscord(),
                     "❌ **Has sido retirado del programa de practicantes.**\n**Motivo:** Acumulación de 3 faltas consecutivas.");
+
+            botNotificationService.sendMessage(
+                    "1473020479332945940",
+                    "🚨 **RETIRO AUTOMÁTICO** 🚨\nEl practicante **" + practicante.getNombreCompleto()
+                            + "** ha sido dado de baja por acumular 3 faltas consecutivas.");
         }
     }
 
