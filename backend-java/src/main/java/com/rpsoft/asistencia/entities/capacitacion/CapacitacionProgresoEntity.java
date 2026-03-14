@@ -3,7 +3,6 @@ package com.rpsoft.asistencia.entities.capacitacion;
 import com.rpsoft.asistencia.entities.AuditableEntity;
 import com.rpsoft.asistencia.entities.PracticanteEntity;
 import com.rpsoft.asistencia.entities.TrainingEstado;
-import com.rpsoft.asistencia.entities.converters.TrainingEstadoConverter;
 import jakarta.persistence.*;
 import lombok.Getter;
 import lombok.Setter;
@@ -38,8 +37,8 @@ public class CapacitacionProgresoEntity extends AuditableEntity {
     @JoinColumn(name = "evaluador_id")
     private CapacitacionEvaluadorEntity evaluador;
 
-    @Convert(converter = TrainingEstadoConverter.class)
-    @Column(nullable = false, columnDefinition = "training_estado")
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 30)
     private TrainingEstado estado = TrainingEstado.PLANNED;
 
     @Column(name = "fecha_inicio")
