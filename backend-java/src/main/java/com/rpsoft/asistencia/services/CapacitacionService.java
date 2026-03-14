@@ -164,7 +164,7 @@ public class CapacitacionService {
             progreso.setEvaluador(resolveEvaluador(request.getEvaluadorId(), ctx.practicante().getId()));
         }
 
-        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime now = nowTruncated();
         if (progreso.getFechaInicio() == null) {
             progreso.setFechaInicio(now);
         }
@@ -182,7 +182,7 @@ public class CapacitacionService {
             throw new ResourceAlreadyExistsException("Progreso", "estado", progreso.getEstado().toValue());
         }
 
-        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime now = nowTruncated();
         progreso.setAcumulado(calcAcumulado(progreso, now));
         progreso.setUltimaReanudacion(null);
         progreso.setEstado(TrainingEstado.PAUSED);
@@ -198,7 +198,7 @@ public class CapacitacionService {
             throw new ResourceAlreadyExistsException("Progreso", "estado", progreso.getEstado().toValue());
         }
         progreso.setEstado(TrainingEstado.IN_PROGRESS);
-        progreso.setUltimaReanudacion(LocalDateTime.now());
+        progreso.setUltimaReanudacion(nowTruncated());
         progresoRepository.save(progreso);
         return mapProgreso(progreso);
     }
@@ -210,7 +210,7 @@ public class CapacitacionService {
         if (progreso.getEstado() != TrainingEstado.IN_PROGRESS) {
             throw new ResourceAlreadyExistsException("Progreso", "estado", progreso.getEstado().toValue());
         }
-        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime now = nowTruncated();
         Duration total = calcAcumulado(progreso, now);
         progreso.setAcumulado(total);
         progreso.setDuracionFinal(total);
@@ -363,6 +363,7 @@ public class CapacitacionService {
                     .estado(TrainingEstado.PLANNED.toValue())
                     .build();
         }
+        LocalDateTime now = nowTruncated();
         return CapacitacionTemaProgresoDto.builder()
                 .curso(progreso.getCurso().getNombre())
                 .tema(progreso.getTema().getNombre())
@@ -373,13 +374,14 @@ public class CapacitacionService {
                 .fechaFin(progreso.getFechaFin())
                 .ultimaReanudacion(progreso.getUltimaReanudacion())
                 .acumulado(progreso.getEstado() == TrainingEstado.IN_PROGRESS
-                        ? calcAcumulado(progreso, LocalDateTime.now())
+                        ? calcAcumulado(progreso, now)
                         : progreso.getAcumulado())
                 .duracionFinal(progreso.getDuracionFinal())
                 .build();
     }
 
     private CapacitacionProgresoResponseDto mapProgreso(CapacitacionProgresoEntity progreso) {
+        LocalDateTime now = nowTruncated();
         return CapacitacionProgresoResponseDto.builder()
                 .curso(progreso.getCurso().getNombre())
                 .tema(progreso.getTema().getNombre())
@@ -390,10 +392,14 @@ public class CapacitacionService {
                 .fechaFin(progreso.getFechaFin())
                 .ultimaReanudacion(progreso.getUltimaReanudacion())
                 .acumulado(progreso.getEstado() == TrainingEstado.IN_PROGRESS
-                        ? calcAcumulado(progreso, LocalDateTime.now())
+                        ? calcAcumulado(progreso, now)
                         : progreso.getAcumulado())
                 .duracionFinal(progreso.getDuracionFinal())
                 .build();
+    }
+
+    private LocalDateTime nowTruncated() {
+        return LocalDateTime.now().truncatedTo(ChronoUnit.SECONDS);
     }
 
     private CapacitacionEvaluadorDto mapEvaluadorMaybe(CapacitacionEvaluadorEntity evaluador) {
