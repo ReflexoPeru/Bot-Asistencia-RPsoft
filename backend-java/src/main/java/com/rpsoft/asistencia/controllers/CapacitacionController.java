@@ -22,6 +22,21 @@ public class CapacitacionController {
         return ResponseEntity.ok(capacitacionService.getProgresos(practicanteId, java.util.Optional.ofNullable(cursoNombre)));
     }
 
+    @PostMapping("/curso")
+    public ResponseEntity<CapacitacionCursoDto> crearCurso(
+            @Valid @RequestBody CapacitacionCursoCreateRequest request) {
+        CapacitacionCursoDto dto = capacitacionService.crearCurso(request);
+        return ResponseEntity.status(HttpStatus.CREATED).body(dto);
+    }
+
+    @PostMapping("/curso/{id}/temas")
+    public ResponseEntity<CapacitacionCursoDto> agregarTemas(
+            @PathVariable("id") Integer cursoId,
+            @Valid @RequestBody CapacitacionAgregarTemasRequest request) {
+        CapacitacionCursoDto dto = capacitacionService.agregarTemas(cursoId, request);
+        return ResponseEntity.status(HttpStatus.CREATED).body(dto);
+    }
+
     @PostMapping("/iniciar")
     public ResponseEntity<CapacitacionProgresoResponseDto> iniciar(
             @Valid @RequestBody CapacitacionIniciarRequest request) {

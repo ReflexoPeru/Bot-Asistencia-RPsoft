@@ -67,6 +67,84 @@ public class CapacitacionService {
     }
 
     @Transactional
+    public CapacitacionCursoDto crearCurso(CapacitacionCursoCreateRequest request) {
+        cursoRepository.findByNombreIgnoreCase(request.getNombre())
+                .ifPresent(existing -> {
+                    throw new ResourceAlreadyExistsException("Curso", "nombre", request.getNombre());
+                });
+
+        CapacitacionCursoEntity curso = new CapacitacionCursoEntity();
+        curso.setNombre(request.getNombre());
+        curso.setDescripcion(request.getDescripcion());
+        curso.setActivo(Optional.ofNullable(request.getActivo()).orElse(Boolean.TRUE));
+
+        List<CapacitacionTemaCreateRequest> temas = Optional.ofNullable(request.getTemas()).orElse(List.of());
+        validateTemasRequest(temas);
+
+        for (CapacitacionTemaCreateRequest temaRequest : temas) {
+            CapacitacionTemaEntity tema = new CapacitacionTemaEntity();
+            tema.setCurso(curso);
+            tema.setNombre(temaRequest.getNombre());
+            tema.setOrden(temaRequest.getOrden());
+            tema.setDescripcion(temaRequest.getDescripcion());
+            if (temaRequest.getDuracionRefDias() != null) {
+                tema.setDuracionRef(Duration.ofDays(temaRequest.getDuracionRefDias()));
+            }
+            curso.getTemas().add(tema);
+        }
+
+        CapacitacionCursoEntity saved = cursoRepository.save(curso);
+        return mapCurso(saved, curso.getTemas());
+    }
+
+    @Transactional
+    public CapacitacionCursoDto agregarTemas(Integer cursoId, CapacitacionAgregarTemasRequest request) {
+        CapacitacionCursoEntity curso = cursoRepository.findById(cursoId)
+                .orElseThrow(() -> new ResourceNotFoundException("Curso no encontrado"));
+
+        List<CapacitacionTemaCreateRequest> nuevosTemas = Optional.ofNullable(request.getTemas()).orElse(List.of());
+        if (nuevosTemas.isEmpty()) {
+            throw new BadRequestException("Debe enviar al menos un tema");
+        }
+        validateTemasRequest(nuevosTemas);
+
+        List<CapacitacionTemaEntity> existentes = temaRepository.findByCursoOrderByOrdenAsc(curso);
+        Set<String> nombresExistentes = existentes.stream()
+                .map(t -> t.getNombre().toLowerCase(Locale.ROOT))
+                .collect(Collectors.toSet());
+        Set<Integer> ordenesExistentes = existentes.stream()
+                .map(CapacitacionTemaEntity::getOrden)
+                .collect(Collectors.toSet());
+
+        List<CapacitacionTemaEntity> paraGuardar = new ArrayList<>();
+        for (CapacitacionTemaCreateRequest temaRequest : nuevosTemas) {
+            String nombreKey = temaRequest.getNombre().toLowerCase(Locale.ROOT);
+            if (nombresExistentes.contains(nombreKey)) {
+                throw new ResourceAlreadyExistsException("Tema", "nombre", temaRequest.getNombre());
+            }
+            if (ordenesExistentes.contains(temaRequest.getOrden())) {
+                throw new ResourceAlreadyExistsException("Tema", "orden", temaRequest.getOrden());
+            }
+
+            CapacitacionTemaEntity tema = new CapacitacionTemaEntity();
+            tema.setCurso(curso);
+            tema.setNombre(temaRequest.getNombre());
+            tema.setOrden(temaRequest.getOrden());
+            tema.setDescripcion(temaRequest.getDescripcion());
+            if (temaRequest.getDuracionRefDias() != null) {
+                tema.setDuracionRef(Duration.ofDays(temaRequest.getDuracionRefDias()));
+            }
+            nombresExistentes.add(nombreKey);
+            ordenesExistentes.add(temaRequest.getOrden());
+            paraGuardar.add(tema);
+        }
+
+        temaRepository.saveAll(paraGuardar);
+        existentes.addAll(paraGuardar);
+        return mapCurso(curso, existentes);
+    }
+
+    @Transactional
     public CapacitacionProgresoResponseDto iniciar(CapacitacionIniciarRequest request) {
         CapacitacionContext ctx = loadContext(request.getPracticanteId(), request.getCursoNombre(), request.getTemaNombre());
         CapacitacionProgresoEntity progreso = progresoRepository.findByPracticanteAndTema(ctx.practicante(), ctx.tema())
@@ -191,6 +269,40 @@ public class CapacitacionService {
         return base.truncatedTo(ChronoUnit.SECONDS);
     }
 
+    private CapacitacionCursoDto mapCurso(CapacitacionCursoEntity curso) {
+        return mapCurso(curso, Optional.ofNullable(curso.getTemas()).orElseGet(Set::of));
+    }
+
+    private CapacitacionCursoDto mapCurso(CapacitacionCursoEntity curso, Collection<CapacitacionTemaEntity> temasCollection) {
+        List<CapacitacionTemaDto> temas = temasCollection.stream()
+                .sorted(Comparator.comparing(CapacitacionTemaEntity::getOrden))
+                .map(this::mapTema)
+                .toList();
+
+        return CapacitacionCursoDto.builder()
+                .id(curso.getId())
+                .nombre(curso.getNombre())
+                .descripcion(curso.getDescripcion())
+                .activo(curso.getActivo())
+                .temas(temas)
+                .build();
+    }
+
+    private CapacitacionTemaDto mapTema(CapacitacionTemaEntity tema) {
+        Integer duracionDias = Optional.ofNullable(tema.getDuracionRef())
+                .map(Duration::toDays)
+                .map(Math::toIntExact)
+                .orElse(null);
+
+        return CapacitacionTemaDto.builder()
+                .id(tema.getId())
+                .nombre(tema.getNombre())
+                .orden(tema.getOrden())
+                .descripcion(tema.getDescripcion())
+                .duracionRefDias(duracionDias)
+                .build();
+    }
+
     private CapacitacionProgresoEntity createPlanned(CapacitacionContext ctx) {
         CapacitacionProgresoEntity progreso = new CapacitacionProgresoEntity();
         progreso.setPracticante(ctx.practicante());
@@ -205,6 +317,20 @@ public class CapacitacionService {
         CapacitacionContext ctx = loadContext(request.getPracticanteId(), request.getCursoNombre(), request.getTemaNombre());
         return progresoRepository.findByPracticanteAndTema(ctx.practicante(), ctx.tema())
                 .orElseThrow(() -> new ResourceNotFoundException("No existe progreso para este tema"));
+    }
+
+    private void validateTemasRequest(List<CapacitacionTemaCreateRequest> temas) {
+        Set<String> nombres = new HashSet<>();
+        Set<Integer> ordenes = new HashSet<>();
+        for (CapacitacionTemaCreateRequest tema : temas) {
+            String nombreKey = tema.getNombre().toLowerCase(Locale.ROOT);
+            if (!nombres.add(nombreKey)) {
+                throw new BadRequestException("Tema duplicado en la solicitud: " + tema.getNombre());
+            }
+            if (!ordenes.add(tema.getOrden())) {
+                throw new BadRequestException("Orden duplicado en la solicitud: " + tema.getOrden());
+            }
+        }
     }
 
     private CapacitacionEvaluadorEntity resolveEvaluador(Integer evaluadorId, Integer practicanteId) {
