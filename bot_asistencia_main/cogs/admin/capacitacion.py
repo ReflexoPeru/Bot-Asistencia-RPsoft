@@ -6,6 +6,31 @@ import logging
 from .helpers import verificar_admin
 
 
+async def _autocomplete_cursos_activos(interaction: discord.Interaction, current: str):
+    filtro = f"%{current}%" if current else "%"
+    rows = await db.fetch_all(
+        "SELECT id, nombre FROM capacitacion_curso WHERE activo = true AND nombre ILIKE $1 ORDER BY nombre LIMIT 25",
+        filtro,
+    )
+    return [app_commands.Choice(name=f"{row['nombre']} (id {row['id']})", value=str(row['id'])) for row in rows]
+
+
+async def _autocomplete_temas_por_curso(interaction: discord.Interaction, current: str):
+    curso_val = getattr(interaction.namespace, "curso", None)
+    if curso_val is None:
+        return []
+    curso_id = await _resolver_curso_id(str(curso_val))
+    if not curso_id:
+        return []
+    filtro = f"%{current}%" if current else "%"
+    rows = await db.fetch_all(
+        "SELECT nombre, orden FROM capacitacion_tema WHERE curso_id = $1 AND nombre ILIKE $2 ORDER BY orden LIMIT 25",
+        curso_id,
+        filtro,
+    )
+    return [app_commands.Choice(name=f"{row['orden']}. {row['nombre']}", value=row['nombre']) for row in rows]
+
+
 def _duration_to_str(iso_str: str) -> str:
     if not iso_str:
         return "0s"
@@ -64,22 +89,27 @@ class CapacitacionCommands:
 
     @capacitacion.command(name="iniciar", description="Iniciar progreso de un tema")
     @app_commands.describe(practicante="Practicante", curso="Curso", tema="Tema", evaluador="Evaluador (opcional)")
+    @app_commands.autocomplete(curso=_autocomplete_cursos_activos, tema=_autocomplete_temas_por_curso)
     async def iniciar(self, interaction: discord.Interaction, practicante: discord.Member, curso: str, tema: str, evaluador: discord.Member | None = None):
         await self._mutate(interaction, "iniciar", practicante, curso, tema, evaluador)
 
     @capacitacion.command(name="pausar", description="Pausar progreso en curso")
+    @app_commands.autocomplete(curso=_autocomplete_cursos_activos, tema=_autocomplete_temas_por_curso)
     async def pausar(self, interaction: discord.Interaction, practicante: discord.Member, curso: str, tema: str):
         await self._mutate(interaction, "pausar", practicante, curso, tema)
 
     @capacitacion.command(name="reanudar", description="Reanudar progreso pausado")
+    @app_commands.autocomplete(curso=_autocomplete_cursos_activos, tema=_autocomplete_temas_por_curso)
     async def reanudar(self, interaction: discord.Interaction, practicante: discord.Member, curso: str, tema: str):
         await self._mutate(interaction, "reanudar", practicante, curso, tema)
 
     @capacitacion.command(name="finalizar", description="Finalizar progreso en curso")
+    @app_commands.autocomplete(curso=_autocomplete_cursos_activos, tema=_autocomplete_temas_por_curso)
     async def finalizar(self, interaction: discord.Interaction, practicante: discord.Member, curso: str, tema: str):
         await self._mutate(interaction, "finalizar", practicante, curso, tema)
 
     @capacitacion.command(name="asignar_evaluador", description="Asignar evaluador a un tema")
+    @app_commands.autocomplete(curso=_autocomplete_cursos_activos, tema=_autocomplete_temas_por_curso)
     async def asignar_evaluador(self, interaction: discord.Interaction, practicante: discord.Member, curso: str, tema: str, evaluador: discord.Member):
         await self._mutate(interaction, "evaluador", practicante, curso, tema, evaluador, method="PATCH")
 
@@ -141,6 +171,7 @@ class CapacitacionCommands:
 
     @capacitacion.command(name="agregar_temas", description="Agregar temas a un curso existente")
     @app_commands.describe(curso="ID o nombre del curso", temas="Formato: Nombre|Orden|DuracionDias;...")
+    @app_commands.autocomplete(curso=_autocomplete_cursos_activos)
     async def agregar_temas(self, interaction: discord.Interaction, curso: str, temas: str):
         await interaction.response.defer(ephemeral=True)
         if not await verificar_admin(interaction):
