@@ -6,6 +6,12 @@ import logging
 from .helpers import verificar_admin
 
 
+def _get_backend_url(bot) -> str:
+    """Obtiene la URL del backend o usa el fallback local por defecto."""
+    base = getattr(bot, '_backend_url', None)
+    return base or 'http://backend:9090/api/v1'
+
+
 async def _autocomplete_cursos_activos(interaction: discord.Interaction, current: str):
     filtro = f"%{current}%" if current else "%"
     rows = await db.fetch_all(
@@ -70,7 +76,7 @@ class CapacitacionCommands:
             await interaction.followup.send("❌ Practicante no encontrado en la BD.", ephemeral=True)
             return
 
-        base_url = getattr(self.bot, '_backend_url', 'http://backend:9090/api/v1')
+        base_url = _get_backend_url(self.bot)
         params = f"?curso={curso}" if curso else ""
         url = f"{base_url}/capacitacion/practicante/{prac['id']}{params}"
         try:
@@ -155,7 +161,7 @@ class CapacitacionCommands:
             "activo": activo,
             "temas": temas_list
         }
-        base_url = getattr(self.bot, '_backend_url', 'http://backend:9090/api/v1')
+        base_url = _get_backend_url(self.bot)
         url = f"{base_url}/capacitacion/curso"
         try:
             async with aiohttp.ClientSession() as session:
@@ -188,7 +194,7 @@ class CapacitacionCommands:
             await interaction.followup.send("❌ Debes enviar al menos un tema (Nombre|Orden|DuracionDias).", ephemeral=True)
             return
 
-        base_url = getattr(self.bot, '_backend_url', 'http://backend:9090/api/v1')
+        base_url = _get_backend_url(self.bot)
         url = f"{base_url}/capacitacion/curso/{curso_id}/temas"
         try:
             async with aiohttp.ClientSession() as session:
@@ -221,7 +227,7 @@ class CapacitacionCommands:
                 await interaction.followup.send("❌ Evaluador no existe en la BD.", ephemeral=True)
                 return
 
-        base_url = getattr(self.bot, '_backend_url', 'http://backend:9090/api/v1')
+        base_url = _get_backend_url(self.bot)
         url = f"{base_url}/capacitacion/{accion}"
         payload = {
             "practicanteId": prac['id'],
@@ -248,7 +254,7 @@ class CapacitacionCommands:
             await interaction.followup.send("❌ Error al contactar al backend.", ephemeral=True)
 
     async def _post_simple(self, interaction: discord.Interaction, path: str, payload: dict, success_msg: str):
-        base_url = getattr(self.bot, '_backend_url', 'http://backend:9090/api/v1')
+        base_url = _get_backend_url(self.bot)
         url = f"{base_url}/capacitacion/{path}"
         try:
             async with aiohttp.ClientSession() as session:
