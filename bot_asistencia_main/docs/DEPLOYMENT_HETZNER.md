@@ -1,87 +1,61 @@
 # 🚀 Guía de Deployment - Bot de Asistencia en Hetzner VPS
 
-Esta guía detalla los pasos para poner el bot en marcha en un servidor VPS de Hetzner de manera rápida.
+Pasos rápidos para desplegar el bot (Python), backend (Spring Boot) y PostgreSQL usando Docker Compose.
 
-## 📋 Requisitos Iniciales
-Para que el bot funcione, debes tener listos en tu PC estos dos archivos:
-1.  **`.env`**: Archivo con los tokens y claves de la base de datos.
-2.  **`credentials.json`**: La llave de Google que generamos anteriormente.
-
----
+## 📋 Requisitos
+- VPS con Docker y Docker Compose instalados (`docker --version`, `docker compose version`).
+- Archivos locales listos: `.env` en la raíz del proyecto y `bot_asistencia_main/credentials.json`.
 
 ## 🔧 Paso 1: Conectarse al VPS
-Usa tu terminal (PowerShell o CMD en Windows) para conectarte por SSH:
 ```bash
 ssh root@tu_ip_del_vps
 ```
 
-*Nota: Por seguridad, el VPS ya debe tener instalado Docker y Docker Compose. Si no es así, verifica con `docker --version`.*
-
----
-
-## 📁 Paso 2: Crear Directorio del Proyecto
-En el servidor, crea una carpeta para mantener el orden:
+## 📁 Paso 2: Preparar directorio
 ```bash
 mkdir -p ~/bot_asistencia
 cd ~/bot_asistencia
 ```
 
----
-
-## 📤 Paso 3: Clonar el Proyecto (Git)
-Descarga el código directamente desde el repositorio oficial:
+## 📤 Paso 3: Clonar el proyecto
 ```bash
 git clone https://github.com/ReflexoPeru/Bot-Asistencia-RPsoft.git .
 ```
 
----
-
-## 🔐 Paso 4: Configurar Archivos Sensibles
-Debes crear manualmente los archivos que Git ignora por seguridad:
-
-1.  **Crear archivo .env**:
-    ```bash
-    nano .env
-    ```
-    Pega el contenido de tu configuración (Tokens de Discord, DB_HOST, DB_USER, etc.).
-    *Nota: No es necesario configurar el backend si no se usa.*
-
-2.  **Crear credentials.json**:
-    ```bash
-    cd bot_asistencia_main
-    nano credentials.json
-    ```
-    Pega el contenido del JSON que descargaste de Google Cloud.
-
-Sal de nano con `Ctrl + O` (guardar), `Enter` y `Ctrl + X` (salir).
-
----
-
-## 🐳 Paso 5: Lanzar el Bot
-Regresa a la carpeta principal donde está el archivo `docker-compose.yml` y ejecuta:
+## 🔐 Paso 4: Cargar secretos
+1) `.env` en la raíz (mismos nombres que usa `docker-compose.yml`):
 ```bash
-docker-compose up -d --build
+nano .env
 ```
-Este comando construirá la imagen y encenderá los contenedores del Bot y la Base de Datos en segundo plano.
+Incluye al menos: `DISCORD_TOKEN`, `DB_NAME`, `DB_USER`, `DB_PASSWORD`, `BACKEND_API_KEY`, `BACKEND_URL`, `GOOGLE_SHEET_NAME`.
 
----
-
-## 📊 Paso 6: Verificación y Logs
-Para confirmar que todo está corriendo bien y ver los mensajes del bot en tiempo real:
+2) `credentials.json` para Google Sheets:
 ```bash
-docker-compose logs -f bot-asistencia
+cd bot_asistencia_main
+nano credentials.json
 ```
-Para salir de los logs sin apagar el bot, presiona `Ctrl + C`.
+Guarda y vuelve a la raíz (`cd ..`).
 
----
+## 🐳 Paso 5: Levantar servicios
+```bash
+docker compose up -d --build
+```
+Servicios y puertos expuestos:
+- `db` (PostgreSQL): 5432
+- `bot` (Discord bot + web liviano): 8081 → contenedor 10000
+- `backend` (Spring Boot): 9090
 
-## 🎯 Resumen de Comandos Rápidos
-- **Reiniciar el Bot**: `docker-compose restart`
-- **Actualizar Código**: `git pull && docker-compose up --build -d`
-- **Apagar Todo**: `docker-compose down`
-- **Ver Estado**: `docker-compose ps`
+## 📊 Paso 6: Verificación y logs
+```bash
+docker compose ps
+docker compose logs -f bot
+docker compose logs -f backend
+```
+Usa `Ctrl + C` para salir de los logs sin apagar contenedores.
 
----
+## 🎯 Comandos útiles
+- Reiniciar servicios: `docker compose restart`
+- Actualizar código: `git pull && docker compose up -d --build`
+- Apagar todo: `docker compose down`
 
-**Última actualización:** 2026-02-14
-**Autor:** Renso Abraham - RpSoft
+**Última actualización:** 2026-03-14

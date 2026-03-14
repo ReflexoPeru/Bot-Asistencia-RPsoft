@@ -1,8 +1,8 @@
 # 🗄️ Diseño de Base de Datos — Bot Asistencia RPSoft
 
-**Motor:** MariaDB 10.6 (InnoDB) · **Charset:** `utf8mb4_unicode_ci`  
-**Base de datos:** `asistencia_rp_soft`  
-**Inicialización:** [database.py](file:///home/jhefry-lap/IdeaProjects/Bot-Asistencia-RPsoft/bot_asistencia_main/database.py) → `ensure_db_setup()`
+**Motor:** PostgreSQL 16  
+**Base de datos:** `${DB_NAME}` (default `asistencia_rp_soft`)  
+**Inicialización:** `bot_asistencia_main/database.py` → `ensure_db_setup()` (usa `asyncpg`)
 
 ---
 
@@ -10,48 +10,70 @@
 
 ```mermaid
 erDiagram
-    practicante ||--o{ asistencia : "registra"
-    practicante ||--o{ asistencia_recuperacion : "recupera"
-    estado_asistencia ||--o{ asistencia : "clasifica"
-    
+    practicante ||--o{ asistencia : registra
+    practicante ||--o{ recuperacion : recupera
+    practicante ||--o{ reporte : reporta
+    practicante ||--o{ configuracion_servidor : configura
+
     practicante {
-        INT id PK
+        SERIAL id PK
         BIGINT id_discord UK
         VARCHAR nombre_completo
-        TIME horas_base
-        INT advertencias
-    }
-
-    estado_asistencia {
-        INT id PK
-        VARCHAR estado UK
+        VARCHAR correo
+        BOOLEAN clase_lunes
+        BOOLEAN clase_martes
+        BOOLEAN clase_miercoles
+        BOOLEAN clase_jueves
+        BOOLEAN clase_viernes
+        BOOLEAN clase_sabado
+        VARCHAR convenio
+        SMALLINT semestre
+        VARCHAR rol
+        DATE fecha_inscripcion
+        BOOLEAN matriculado
+        VARCHAR dni
+        VARCHAR numero
+        VARCHAR sede
+        VARCHAR carrera
+        VARCHAR usuario_github
+        VARCHAR usuario_discord
+        VARCHAR estado
+        DATE fecha_retiro
+        VARCHAR motivo_retiro
+        INT baneos
+        INTERVAL horas_base
     }
 
     asistencia {
-        INT id PK
+        SERIAL id PK
         INT practicante_id FK
-        INT estado_id FK
+        VARCHAR estado
         DATE fecha
         TIME hora_entrada
         TIME hora_salida
-        TIME horas_extra
-        TEXT observaciones
-        VARCHAR motivo
+        BOOLEAN salida_auto
+        VARCHAR dispositivo
     }
 
-    asistencia_recuperacion {
-        INT id PK
+    recuperacion {
+        SERIAL id PK
         INT practicante_id FK
-        DATE fecha_recuperacion
+        DATE fecha
         TIME hora_entrada
         TIME hora_salida
-        TEXT motivo
-        ENUM estado
+        VARCHAR estado
+        BOOLEAN salida_auto
     }
 
-    reportes_enviados {
-        DATE fecha PK
-        DATETIME enviado_at
+    reporte {
+        SERIAL id PK
+        INT practicante_id FK
+        TEXT descripcion
+        VARCHAR tipo
+        DATE fecha
+        BOOLEAN revisado
+        BIGINT creado_por
+        TIMESTAMP created_at
     }
 
     configuracion_servidor {
@@ -62,9 +84,14 @@ erDiagram
         TEXT mensaje_bienvenida
     }
 
-    bot_admins {
+    reportes_enviados {
+        DATE fecha PK
+        TIMESTAMP enviado_at
+    }
+
+    bot_admin {
         BIGINT discord_id PK
-        VARCHAR nombre_referencia
+        VARCHAR nombre_discord
         VARCHAR rol
     }
 ```
@@ -74,175 +101,139 @@ erDiagram
 ## Tablas
 
 ### 1. `practicante`
-Tabla central del sistema. Almacena los datos de cada practicante vinculado por su cuenta de Discord.
+Tabla central. Contiene datos de Discord y datos académicos/operativos.
 
 | Columna | Tipo | Restricciones | Descripción |
 |---|---|---|---|
-| `id` | `INT` | PK, AUTO_INCREMENT | Identificador interno |
+| `id` | `SERIAL` | PK | Identificador interno |
 | `id_discord` | `BIGINT` | NOT NULL, UNIQUE | ID de usuario en Discord |
-| `nombre_completo` | `VARCHAR(255)` | NOT NULL | Nombre completo del practicante |
-| `horas_base` | `TIME` | DEFAULT `'00:00:00'` | Horas pre-cargadas (previas al bot, importadas de Excel) |
-| `advertencias` | `INT` | DEFAULT `0` | Contador de advertencias por no cerrar recuperaciones |
+| `nombre_completo` | `VARCHAR(255)` | NOT NULL | Nombre completo |
+| `correo` | `VARCHAR(255)` | NULL | Email institucional/personal |
+| `clase_lunes` … `clase_sabado` | `BOOLEAN` | DEFAULT `FALSE` | Días de clase |
+| `convenio` | `VARCHAR(20)` | DEFAULT `'no'` | Tipo de convenio |
+| `semestre` | `SMALLINT` | NULL | Semestre académico |
+| `rol` | `VARCHAR(50)` | NULL | Rol interno |
+| `fecha_inscripcion` | `DATE` | DEFAULT `CURRENT_DATE` | Fecha alta |
+| `matriculado` | `BOOLEAN` | DEFAULT `FALSE` | Estado de matrícula |
+| `dni` | `VARCHAR(15)` | NULL | Documento |
+| `numero` | `VARCHAR(20)` | NULL | Teléfono |
+| `sede` | `VARCHAR(100)` | NULL | Sede |
+| `carrera` | `VARCHAR(150)` | NULL | Carrera |
+| `usuario_github` | `VARCHAR(100)` | NULL | Usuario GitHub |
+| `usuario_discord` | `VARCHAR(100)` | NULL | Username Discord |
+| `estado` | `VARCHAR(20)` | DEFAULT `'activo'` | Estado operativo |
+| `fecha_retiro` | `DATE` | NULL | Fecha de retiro |
+| `motivo_retiro` | `VARCHAR(255)` | NULL | Motivo retiro |
+| `baneos` | `INT` | DEFAULT `0` | Conteo de baneos |
+| `horas_base` | `INTERVAL` | DEFAULT `'0 hours'` | Horas precargadas |
 
 ---
 
-### 2. `estado_asistencia`
-Catálogo de estados posibles de asistencia. Se pre-carga con datos semilla.
+### 2. `asistencia`
+Registro diario. Solo un registro por practicante y fecha.
 
 | Columna | Tipo | Restricciones | Descripción |
 |---|---|---|---|
-| `id` | `INT` | PK, AUTO_INCREMENT | Identificador del estado |
-| `estado` | `VARCHAR(50)` | NOT NULL, UNIQUE | Nombre del estado |
-
-**Valores semilla:**
-
-| ID | Estado |
-|----|--------|
-| 1 | Presente |
-| 2 | Tardanza |
-| 3 | Falta Injustificada |
-| 4 | Falta Recuperada |
-| 5 | Permiso |
-
----
-
-### 3. `asistencia`
-Registro principal de asistencia diaria. Cada practicante solo puede tener **un registro por día**.
-
-| Columna | Tipo | Restricciones | Descripción |
-|---|---|---|---|
-| `id` | `INT` | PK, AUTO_INCREMENT | Identificador del registro |
-| `practicante_id` | `INT` | FK → `practicante(id)` ON DELETE CASCADE | Practicante asociado |
-| `estado_id` | `INT` | FK → `estado_asistencia(id)` | Estado de la asistencia |
-| `fecha` | `DATE` | NOT NULL | Fecha del registro |
-| `hora_entrada` | `TIME` | NULL | Hora de llegada |
-| `hora_salida` | `TIME` | NULL | Hora de salida |
-| `horas_extra` | `TIME` | DEFAULT `'00:00:00'` | Horas extra trabajadas |
-| `observaciones` | `TEXT` | NULL | Notas del sistema (ej: validación Google Sheets) |
-| `motivo` | `VARCHAR(255)` | NULL | Motivo de tardanza/falta |
-
-**Índices:**
-- `UNIQUE KEY unique_asistencia_dia (practicante_id, fecha)` — Un registro por practicante por día
-- `KEY estado_id (estado_id)` — Índice para búsquedas por estado
-
----
-
-### 4. `asistencia_recuperacion`
-Registra sesiones de recuperación de horas fuera del horario regular. Un practicante solo puede tener **una sesión de recuperación por día**.
-
-| Columna | Tipo | Restricciones | Descripción |
-|---|---|---|---|
-| `id` | `INT` | PK, AUTO_INCREMENT | Identificador |
+| `id` | `SERIAL` | PK | Identificador |
 | `practicante_id` | `INT` | FK → `practicante(id)` ON DELETE CASCADE | Practicante |
-| `fecha_recuperacion` | `DATE` | NOT NULL | Fecha de la recuperación |
-| `hora_entrada` | `TIME` | NOT NULL | Hora de inicio |
-| `hora_salida` | `TIME` | NULL | Hora de cierre (NULL = sesión abierta) |
-| `motivo` | `TEXT` | NULL | Razón de la recuperación |
-| `estado` | `ENUM('abierto','valido','invalidado')` | DEFAULT `'abierto'` | Estado de la sesión |
+| `estado` | `VARCHAR(20)` | NOT NULL | Estado textual (Presente, Tardanza, etc.) |
+| `fecha` | `DATE` | NOT NULL | Día de la asistencia |
+| `hora_entrada` | `TIME` | NULL | Entrada |
+| `hora_salida` | `TIME` | NULL | Salida |
+| `salida_auto` | `BOOLEAN` | DEFAULT `FALSE` | Si el cierre fue automático |
+| `dispositivo` | `VARCHAR(10)` | NULL | Origen (web, bot, etc.) |
 
-> [!NOTE]
-> El campo `estado` en el **código** (`database.py`) usa `ENUM('abierto','valido','invalidado')`, pero en el **respaldo SQL** fue exportado como `VARCHAR(20) DEFAULT 'Pendiente'`. Esto se debe a que el respaldo fue anterior a la migración del sistema de recuperación.
+**Índices y reglas:**
+- `UNIQUE (practicante_id, fecha)` garantiza un registro diario.
+- Índices en `fecha` y `estado` para consultas rápidas.
 
-**Índice:**
-- `UNIQUE KEY unique_recuperacion_dia (practicante_id, fecha_recuperacion)`
+---
+
+### 3. `recuperacion`
+Sesiones de recuperación de horas. Una por practicante y fecha.
+
+| Columna | Tipo | Restricciones | Descripción |
+|---|---|---|---|
+| `id` | `SERIAL` | PK | Identificador |
+| `practicante_id` | `INT` | FK → `practicante(id)` ON DELETE CASCADE | Practicante |
+| `fecha` | `DATE` | NOT NULL | Día de recuperación |
+| `hora_entrada` | `TIME` | NOT NULL | Inicio |
+| `hora_salida` | `TIME` | NULL | Fin (NULL = abierta) |
+| `estado` | `VARCHAR(15)` | DEFAULT `'abierto'` | `abierto`, `valido`, `invalidado` |
+| `salida_auto` | `BOOLEAN` | DEFAULT `FALSE` | Cierre automático |
+
+**Regla:** `UNIQUE (practicante_id, fecha)` evita recuperaciones duplicadas.
+
+---
+
+### 4. `reporte`
+Tabla unificada para distintos tipos de reportes (faltas, incidencias, etc.).
+
+| Columna | Tipo | Restricciones | Descripción |
+|---|---|---|---|
+| `id` | `SERIAL` | PK | Identificador |
+| `practicante_id` | `INT` | FK → `practicante(id)` ON DELETE CASCADE | Practicante |
+| `descripcion` | `TEXT` | NOT NULL | Detalle del reporte |
+| `tipo` | `VARCHAR(30)` | NOT NULL | Tipo (ej. `falta`, `retraso`, `observacion`) |
+| `fecha` | `DATE` | DEFAULT `CURRENT_DATE` | Fecha del evento |
+| `revisado` | `BOOLEAN` | DEFAULT `FALSE` | Estado de revisión |
+| `creado_por` | `BIGINT` | NULL | ID Discord de quien reporta |
+| `created_at` | `TIMESTAMP` | DEFAULT `NOW()` | Creado en |
+
+**Índices:** `practicante_id`, `fecha`, `tipo` para filtrado.
 
 ---
 
 ### 5. `reportes_enviados`
-Control de idempotencia para los reportes diarios automáticos. Evita el envío duplicado al canal de Discord.
+Control de idempotencia para envíos automáticos al canal de reportes.
 
 | Columna | Tipo | Restricciones | Descripción |
 |---|---|---|---|
 | `fecha` | `DATE` | PK | Fecha del reporte |
-| `enviado_at` | `DATETIME` | DEFAULT `CURRENT_TIMESTAMP` | Timestamp de envío |
+| `enviado_at` | `TIMESTAMP` | DEFAULT `NOW()` | Momento de envío |
 
 ---
 
 ### 6. `configuracion_servidor`
-Configuración personalizable por servidor de Discord (guild).
+Preferencias por guild de Discord.
 
 | Columna | Tipo | Restricciones | Descripción |
 |---|---|---|---|
-| `guild_id` | `BIGINT` | PK | ID del servidor Discord |
-| `canal_asistencia_id` | `BIGINT` | NULL | Canal designado para asistencia |
-| `canal_reportes_id` | `BIGINT` | NULL | Canal designado para reportes |
-| `usuarios_mencion_reporte` | `TEXT` | NULL | IDs de Discord separados por comas |
-| `mensaje_bienvenida` | `TEXT` | NULL | Mensaje de bienvenida personalizado |
+| `guild_id` | `BIGINT` | PK | ID del servidor |
+| `canal_asistencia_id` | `BIGINT` | NULL | Canal para comandos de asistencia |
+| `canal_reportes_id` | `BIGINT` | NULL | Canal para reportes diarios |
+| `usuarios_mencion_reporte` | `TEXT` | NULL | IDs (coma separada) a mencionar |
+| `mensaje_bienvenida` | `TEXT` | NULL | Mensaje personalizado |
 
 ---
 
-### 7. `bot_admins`
-Lista de administradores autorizados para ejecutar comandos administrativos del bot.
+### 7. `bot_admin`
+Lista de administradores permitidos para comandos administrativos.
 
 | Columna | Tipo | Restricciones | Descripción |
 |---|---|---|---|
-| `discord_id` | `BIGINT` | PK | ID de Discord del admin |
-| `nombre_referencia` | `VARCHAR(255)` | NULL | Nombre de referencia |
-| `rol` | `VARCHAR(100)` | DEFAULT `'Developer'` | Rol (ej: Dev Principal, Product Owner) |
+| `discord_id` | `BIGINT` | PK | ID de Discord |
+| `nombre_discord` | `VARCHAR(255)` | NULL | Nombre de referencia |
+| `rol` | `VARCHAR(100)` | DEFAULT `'Developer'` | Rol (Dev, PO, etc.) |
 
 ---
 
-## Vistas
-
-### `reporte_asistencia`
-Vista detallada para exportación a Google Sheets. Combina datos de `asistencia`, `practicante` y `estado_asistencia`.
-
-| Columna | Origen | Descripción |
-|---|---|---|
-| `Asistencia_ID` | `asistencia.id` | ID del registro |
-| `ID_Discord` | `practicante.id_discord` | ID Discord |
-| `Nombre_Completo` | `practicante.nombre_completo` | Nombre |
-| `Fecha` | `asistencia.fecha` | Fecha |
-| `Entrada` | `asistencia.hora_entrada` | Hora entrada |
-| `Salida` | `asistencia.hora_salida` | Hora salida |
-| `Estado` | `estado_asistencia.estado` | Estado textual |
-| `Horas_Sesion` | Calculado: `TIMEDIFF(salida, entrada)` | Duración de la sesión |
-| `Horas_Base` | `practicante.horas_base` | Horas pre-cargadas |
-| `Total_Horas_Bot` | Subconsulta: suma de todas las sesiones | Total registrado por el bot |
-| `Gran_Total_Acumulado` | `Horas_Base + Total_Horas_Bot` | Gran total |
-
----
-
-### `resumen_practicantes`
-Vista resumida para consultas rápidas del estado de horas por practicante.
-
-| Columna | Descripción |
-|---|---|
-| `id` | ID interno del practicante |
-| `ID_Discord` | ID Discord |
-| `Nombre_Completo` | Nombre |
-| `Horas_Base` | Horas pre-cargadas |
-| `Horas_Bot` | Total de horas registradas por el bot |
-| `Total_Acumulado` | `Horas_Base + Horas_Bot` |
-
-Ordenada por `Total_Acumulado DESC` — los practicantes con más horas aparecen primero.
-
----
-
-## Relaciones y Reglas de Negocio
-
-```mermaid
-graph LR
-    A["practicante"] -- "1:N" --> B["asistencia"]
-    A -- "1:N" --> C["asistencia_recuperacion"]
-    D["estado_asistencia"] -- "1:N" --> B
-    B -. "alimenta" .-> E["reporte_asistencia (VIEW)"]
-    B -. "alimenta" .-> F["resumen_practicantes (VIEW)"]
-```
+## Reglas de Negocio
 
 | Regla | Implementación |
 |---|---|
-| Un practicante = un registro de asistencia por día | `UNIQUE KEY (practicante_id, fecha)` |
-| Un practicante = una recuperación por día | `UNIQUE KEY (practicante_id, fecha_recuperacion)` |
-| Eliminar practicante → elimina sus registros | `ON DELETE CASCADE` en FKs de `asistencia` y `asistencia_recuperacion` |
-| Solo un reporte diario por fecha | `reportes_enviados.fecha` es PK |
-| 3 advertencias consecutivas → invalidar recuperación | `practicante.advertencias` + lógica en `scheduled_tasks.py` |
+| Un practicante = un registro de asistencia por día | `UNIQUE (practicante_id, fecha)` en `asistencia` |
+| Un practicante = una recuperación por día | `UNIQUE (practicante_id, fecha)` en `recuperacion` |
+| Al eliminar practicante se elimina su historial | FKs `ON DELETE CASCADE` |
+| Reporte diario de idempotencia | `reportes_enviados.fecha` es PK |
 
 ---
 
 ## Notas Técnicas
 
-- **Conexión:** Pool asíncrono via `aiomysql` (min 1, max 10 conexiones)
-- **SSL:** Configurable via `DB_USE_SSL` en `.env`
-- **Autocommit:** Desactivado — las transacciones se manejan explícitamente con `commit()` / `rollback()`
-- **Tipo `TIME` para horas acumuladas:** MariaDB permite valores `TIME` mayores a 24h (ej: `441:57:20`), lo cual se usa para almacenar totales de horas trabajadas
+- Conexión: pool asíncrono `asyncpg` (min 1, max 10). `init_db_pool()` en `database.py`.
+- Puerto: `DB_PORT=5432` por defecto en Docker (`db` service).
+- `horas_base` usa `INTERVAL`, útil para horas acumuladas mayores a 24h.
+- `ensure_db_setup()` crea tablas e inserta admins iniciales (`bot_admin`).
+
+**Última actualización:** 2026-03-14

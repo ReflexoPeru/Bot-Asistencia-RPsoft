@@ -1,70 +1,62 @@
 # 🤖 Bot de Asistencia RP Soft
 
-Bienvenido a la documentación oficial del Bot de Asistencia. Este sistema está diseñado para automatizar el registro de entrada, salida y horas totales de los practicantes a través de Discord, sincronizando toda la información en tiempo real con Google Sheets.
+Automatiza asistencia de practicantes vía Discord, guarda todo en PostgreSQL y sincroniza con Google Sheets. Incluye un backend Spring Boot para APIs internas y un bot en Python con tareas programadas.
 
-## 🚀 Inicio Rápido
+## 🧩 Stack
+- Bot: Python 3.10 + discord.py + asyncpg
+- Backend: Spring Boot (Java) expuesto en `9090`
+- Base de datos: PostgreSQL 16 (puerto `5432`)
+- Webhook liviano para métricas: puerto `10000` mapeado a `8081` en local
 
-Para trabajar con este proyecto en tu entorno local (PC), sigue estos pasos:
-
-1.  **Clonar el proyecto**:
-    ```bash
-    git clone https://github.com/ReflexoPeru/Bot-Asistencia-RPsoft.git
-    cd Bot-Asistencia-RPsoft
-    ```
-2.  **Configuración**:
-    - Crea un archivo `.env` basado en el ejemplo proporcionado.
-    - Coloca tu archivo `credentials.json` en la carpeta `bot_asistencia_main/`.
-3.  **Lanzar con Docker**:
-    Asegúrate de tener **Docker Desktop** instalado y ejecuta:
-    ```bash
-    docker-compose up -d --build
-    ```
-
----
+## 🚀 Inicio Rápido (Docker)
+1. Clona el repo:
+   ```bash
+   git clone https://github.com/ReflexoPeru/Bot-Asistencia-RPsoft.git
+   cd Bot-Asistencia-RPsoft
+   ```
+2. Crea un `.env` en la raíz con tus claves:
+   ```env
+   DISCORD_TOKEN=xxx
+   BACKEND_API_KEY=xxx
+   BACKEND_URL=http://backend:9090/api/v1
+   DB_HOST=db
+   DB_PORT=5432
+   DB_NAME=asistencia_rp_soft
+   DB_USER=postgres
+   DB_PASSWORD=postgres
+   GOOGLE_SHEET_NAME=Bot_de_asistencia_2026
+   TZ=America/Lima
+   LOG_LEVEL=INFO
+   ```
+3. Coloca `bot_asistencia_main/credentials.json` (Service Account de Google Sheets).
+4. Levanta todo:
+   ```bash
+   docker compose up -d --build
+   ```
+5. Revisa logs si algo falla:
+   ```bash
+   docker compose logs -f bot
+   docker compose logs -f backend
+   ```
 
 ## 🏗️ Estructura del Proyecto
-
-- **`bot.py`**: Núcleo principal del bot. Aquí se inician las tareas programadas y se cargan los comandos.
-- **`cogs/`**: Contiene los módulos de comandos divididos por categorías (asistencia, administración, etc.).
-- **`database.py`**: Gestiona la conexión con la base de datos MySQL y la creación automática de tablas.
-- **`google_sheets.py`**: Se encarga de la comunicación con la API de Google para actualizar los reportes.
-- **`bot/config/`**: Aquí puedes modificar los horarios de entrada, tardanza y constantes del sistema.
-- **`docs/`**: Guías detalladas para la creación de cuentas de servicio y despliegue en servidores.
-
----
+- `bot_asistencia_main/bot.py`: Arranque del bot y carga de cogs/tareas.
+- `bot_asistencia_main/database.py`: Conexión y schema bootstrap para PostgreSQL.
+- `bot_asistencia_main/cogs/`: Comandos de asistencia, administración y tareas programadas.
+- `backend-java/`: API Spring Boot que consume la misma base PostgreSQL.
+- `docs/` y `bot_asistencia_main/docs/`: Guías de BD, deployment y Google Cloud.
 
 ## 🛠️ Comandos Principales
+- `/entrada`, `/salida`, `/estado`, `/historial` para practicantes.
+- `/admin editar_asistencia`, `/admin equipo`, `/admin eliminar_practicante`, `/admin sincronizar` para admins.
 
-### Para Practicantes
-- `/entrada`: Registra el inicio de tu jornada.
-- `/salida`: Registra el fin de tu jornada (calcula horas automáticas).
-- `/estado`: Consulta si tienes una sesión activa.
-- `/historial`: Mira tus registros de los últimos días.
+## ⚙️ Configuración rápida
+- Tiempos y reglas: `bot_asistencia_main/bot/config/constants.py`.
+- Canales permitidos y roles: `bot_asistencia_main/bot/config/settings.py`.
 
-### Para Administradores
-- `/admin editar_asistencia`: Corrige o añade registros manualmente.
-- `/admin equipo`: Gestiona los encargados del bot.
-- `/admin eliminar_practicante`: Borra toda la data de un practicante que se retira.
-- `/admin sincronizar`: Fuerza la actualización inmediata del Google Sheets.
+## ❓ Troubleshooting
+- Bot sin respuesta: valida `DISCORD_TOKEN` y que el canal esté en `CANALES_PERMITIDOS`.
+- Google Sheets: comparte el sheet con el `client_email` de `credentials.json`.
+- Base de datos: `docker compose logs -f db` y confirma que `DB_HOST=db`.
 
----
-
-## ⚙️ Configuración Importante
-
-En el archivo `bot/config/constants.py` puedes ajustar:
-- **Horario de entrada**: 8:00 AM.
-- **Tolerancia/Tardanza**: Hasta las 8:10 AM (a las 8:11 AM ya es tardanza).
-- **Salida mínima**: 2:30 PM.
-
----
-
-## ❓ Troubleshooting Común
-
-- **¿El bot no responde?** Verifica que el ID del canal en `settings.py` coincida con tu servidor de Discord.
-- **¿Error en Google Sheets?** Asegúrate de haber compartido el Excel con el email de tu `Service Account`.
-- **¿Problemas de DB?** Chequea los logs con `docker-compose logs -f`.
-
----
-
-**Última actualización:** 2026-02-14
-**Autor:** Renso Abraham - RpSoft
+**Última actualización:** 2026-03-14

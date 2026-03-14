@@ -1,6 +1,6 @@
 # 🔐 Guía: Crear Service Account de Google para el Bot de Asistencia
 
-Esta guía explica cómo obtener las credenciales necesarias para que el bot pueda leer y escribir en Google Sheets.
+Pasos para generar las credenciales que permiten al bot leer y escribir en Google Sheets.
 
 ## 📋 ¿Por qué necesitamos esto?
 
@@ -50,7 +50,7 @@ Debes activar dos servicios para que el bot funcione:
 4.  Selecciona el formato **JSON** y dale a **Crear**.
 5.  Se descargará un archivo `.json`. 
     - **⚠️ IMPORTANTE:** Renombra este archivo a `credentials.json`.
-    - Pon este archivo en la carpeta principal del bot (donde está el archivo `bot.py`).
+    - Guárdalo en `bot_asistencia_main/credentials.json` (es la ruta que monta Docker dentro del contenedor en `/app/credentials.json`).
     - **NO compartas este archivo** ni lo subas a GitHub, ya que es la llave de acceso a tus datos.
 
 ---
@@ -66,5 +66,4 @@ Debes activar dos servicios para que el bot funcione:
 
 ---
 
-**Última actualización:** 2026-02-14
-**Autor:** Renso Abraham - RpSoft
+**Última actualización:** 2026-03-14

@@ -8,6 +8,7 @@ from .retiros import RetirosCommands
 from .reportes import ReportesCommands
 from .configuracion import ConfiguracionCommands
 from .historial import HistorialCommands
+from .capacitacion import CapacitacionCommands
 
 
 class Admin(
@@ -16,6 +17,7 @@ class Admin(
     ReportesCommands,
     ConfiguracionCommands,
     HistorialCommands,
+    CapacitacionCommands,
     commands.GroupCog,
     name="admin",
 ):
