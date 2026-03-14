@@ -12,7 +12,8 @@ async def _autocomplete_cursos_activos(interaction: discord.Interaction, current
         "SELECT id, nombre FROM capacitacion_curso WHERE activo = true AND nombre ILIKE $1 ORDER BY nombre LIMIT 25",
         filtro,
     )
-    return [app_commands.Choice(name=f"{row['nombre']} (id {row['id']})", value=str(row['id'])) for row in rows]
+    # Mostrar id en la etiqueta, pero enviar el nombre como valor para que el backend resuelva por nombre
+    return [app_commands.Choice(name=f"{row['nombre']} (id {row['id']})", value=row['nombre']) for row in rows]
 
 
 async def _autocomplete_temas_por_curso(interaction: discord.Interaction, current: str):
