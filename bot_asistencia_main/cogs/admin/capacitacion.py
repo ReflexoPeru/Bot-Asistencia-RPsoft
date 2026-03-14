@@ -111,6 +111,66 @@ class CapacitacionCommands:
         payload = {"practicanteId": prac['id']}
         await self._post_simple(interaction, "evaluador/desactivar", payload, f"🚫 {prac['nombre_completo']} desactivado como evaluador")
 
+    @capacitacion.command(name="crear_curso", description="Crear curso y temas (opcional)")
+    @app_commands.describe(nombre="Nombre del curso", descripcion="Descripción", activo="Activo?", temas="Formato: Nombre|Orden|DuracionDias;...")
+    async def crear_curso(self, interaction: discord.Interaction, nombre: str, descripcion: str | None = None, activo: bool = True, temas: str | None = None):
+        await interaction.response.defer(ephemeral=True)
+        if not await verificar_admin(interaction):
+            return
+        temas_list = _parse_temas(temas) if temas else []
+        payload = {
+            "nombre": nombre,
+            "descripcion": descripcion,
+            "activo": activo,
+            "temas": temas_list
+        }
+        base_url = getattr(self.bot, '_backend_url', 'http://backend:9090/api/v1')
+        url = f"{base_url}/capacitacion/curso"
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.post(url, json=payload) as resp:
+                    data = await resp.json(content_type=None)
+                    if resp.status in (200, 201):
+                        await interaction.followup.send(f"✅ Curso creado: {data.get('nombre')} (id {data.get('id')})", ephemeral=True)
+                    else:
+                        msg = data.get('message') if isinstance(data, dict) else str(data)
+                        await interaction.followup.send(f"❌ {msg} (HTTP {resp.status})", ephemeral=True)
+        except Exception:
+            logging.exception("Error creando curso")
+            await interaction.followup.send("❌ Error al contactar al backend.", ephemeral=True)
+
+    @capacitacion.command(name="agregar_temas", description="Agregar temas a un curso existente")
+    @app_commands.describe(curso="ID o nombre del curso", temas="Formato: Nombre|Orden|DuracionDias;...")
+    async def agregar_temas(self, interaction: discord.Interaction, curso: str, temas: str):
+        await interaction.response.defer(ephemeral=True)
+        if not await verificar_admin(interaction):
+            return
+
+        curso_id = await _resolver_curso_id(curso)
+        if not curso_id:
+            await interaction.followup.send("❌ Curso no encontrado.", ephemeral=True)
+            return
+
+        temas_list = _parse_temas(temas)
+        if not temas_list:
+            await interaction.followup.send("❌ Debes enviar al menos un tema (Nombre|Orden|DuracionDias).", ephemeral=True)
+            return
+
+        base_url = getattr(self.bot, '_backend_url', 'http://backend:9090/api/v1')
+        url = f"{base_url}/capacitacion/curso/{curso_id}/temas"
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.post(url, json={"temas": temas_list}) as resp:
+                    data = await resp.json(content_type=None)
+                    if resp.status in (200, 201):
+                        await interaction.followup.send(f"✅ Temas agregados al curso {data.get('nombre')} (id {data.get('id')})", ephemeral=True)
+                    else:
+                        msg = data.get('message') if isinstance(data, dict) else str(data)
+                        await interaction.followup.send(f"❌ {msg} (HTTP {resp.status})", ephemeral=True)
+        except Exception:
+            logging.exception("Error agregando temas")
+            await interaction.followup.send("❌ Error al contactar al backend.", ephemeral=True)
+
     # --------------- helpers ---------------
     async def _mutate(self, interaction: discord.Interaction, accion: str, practicante: discord.Member, curso: str, tema: str, evaluador: discord.Member | None = None, method: str = "POST"):
         await interaction.response.defer(ephemeral=True)
@@ -214,3 +274,42 @@ def _embed_progreso_unico(data: dict) -> Embed:
     if estado == 'finished' and data.get('duracionFinal'):
         embed.add_field(name="Duración", value=_duration_to_str(data['duracionFinal']), inline=False)
     return embed
+
+
+def _parse_temas(temas_str: str) -> list[dict]:
+    temas = []
+    if not temas_str:
+        return temas
+    for raw in temas_str.split(';'):
+        raw = raw.strip()
+        if not raw:
+            continue
+        parts = [p.strip() for p in raw.split('|')]
+        if len(parts) < 2:
+            continue
+        nombre = parts[0]
+        try:
+            orden = int(parts[1]) if parts[1] else None
+        except ValueError:
+            continue
+        duracion = None
+        if len(parts) > 2 and parts[2]:
+            try:
+                duracion = int(parts[2])
+            except ValueError:
+                duracion = None
+        temas.append({
+            "nombre": nombre,
+            "orden": orden,
+            "duracionRefDias": duracion
+        })
+    return temas
+
+
+async def _resolver_curso_id(curso: str) -> int | None:
+    # Si viene numérico, úsalo directo
+    if curso.isdigit():
+        return int(curso)
+    row = await db.fetch_one("SELECT id FROM capacitacion_curso WHERE lower(nombre) = lower($1)", curso)
+    return row['id'] if row else None
+
