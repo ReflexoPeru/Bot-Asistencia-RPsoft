@@ -3,7 +3,8 @@ package com.rpsoft.asistencia.entities.capacitacion;
 import com.rpsoft.asistencia.entities.AuditableEntity;
 import com.rpsoft.asistencia.entities.PracticanteEntity;
 import com.rpsoft.asistencia.entities.TrainingEstado;
-import com.rpsoft.asistencia.entities.converters.TrainingEstadoConverter;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 import jakarta.persistence.*;
 import lombok.Getter;
 import lombok.Setter;
@@ -38,7 +39,8 @@ public class CapacitacionProgresoEntity extends AuditableEntity {
     @JoinColumn(name = "evaluador_id")
     private CapacitacionEvaluadorEntity evaluador;
 
-    @Convert(converter = TrainingEstadoConverter.class)
+    @Enumerated(EnumType.STRING)
+    @JdbcTypeCode(SqlTypes.NAMED_ENUM)
     @Column(nullable = false, columnDefinition = "training_estado")
     private TrainingEstado estado = TrainingEstado.PLANNED;
 

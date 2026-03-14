@@ -4,7 +4,7 @@ import com.rpsoft.asistencia.entities.TrainingEstado;
 import jakarta.persistence.AttributeConverter;
 import jakarta.persistence.Converter;
 
-@Converter(autoApply = true)
+@Converter(autoApply = false)
 public class TrainingEstadoConverter implements AttributeConverter<TrainingEstado, String> {
     @Override
     public String convertToDatabaseColumn(TrainingEstado attribute) {
